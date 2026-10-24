@@ -91,9 +91,9 @@ public class MainActivity extends android.app.Activity {
 
         TextView tip = new TextView(this);
         tip.setText("\n其它 App 怎么用:\n"
-                + "  GET  http://127.0.0.1:8766/v1/health\n"
-                + "  GET  http://127.0.0.1:8766/v1/events/latest\n"
-                + "  POST http://127.0.0.1:8766/v1/subscribe  {\"url\":\"...\"}\n"
+                + "  GET  http://127.0.0.1:<apiPort>/v1/health\n"
+                + "  GET  http://127.0.0.1:<apiPort>/v1/events/latest\n"
+                + "  POST http://127.0.0.1:<apiPort>/v1/subscribe  {\"url\":\"...\"}\n"
                 + "  广播: action=com.birdnofoots.didiwatch.EVENT extra=json");
         tip.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         tip.setPadding(0, p, 0, 0);
@@ -143,7 +143,7 @@ public class MainActivity extends android.app.Activity {
     }
 
     private String apiText(WatchConfig cfg) {
-        return "本机 API: http://127.0.0.1:8766/\n"
+        return "本机 API: http://127.0.0.1:" + cfg.apiPort() + "/\n"
                 + "token: " + cfg.token()
                 + (cfg.pkg().isEmpty() ? "" : "\n监听: " + cfg.pkg() + " / " + cfg.act());
     }

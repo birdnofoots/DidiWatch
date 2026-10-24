@@ -11,7 +11,7 @@ public class WatchConfig {
     private static final String PREFS = "didiwatch";
     public static final String DEFAULT_PKG = "com.sdu.didi.gsui";
     public static final String DEFAULT_ACT = "BroadOrderActivity";
-    /** 本机 API 端口(只监听 127.0.0.1) */
+    /** 本机 API 首选端口(只监听 127.0.0.1); 被占用时会自动换并存起来 */
     public static final int API_PORT = 8766;
 
     private final SharedPreferences sp;
@@ -33,6 +33,9 @@ public class WatchConfig {
 
     public Set<String> callbacks() { return new HashSet<>(sp.getStringSet("callbacks", new HashSet<String>())); }
     public void setCallbacks(Set<String> s) { sp.edit().putStringSet("callbacks", new HashSet<>(s)).apply(); }
+
+    public int apiPort() { return sp.getInt("api_port", API_PORT); }
+    public void setApiPort(int p) { sp.edit().putInt("api_port", p).apply(); }
 
     public String token() { return sp.getString("token", ""); }
     public void setToken(String v) { sp.edit().putString("token", v).apply(); }

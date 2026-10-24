@@ -32,18 +32,36 @@ import java.util.Set;
 public class WatchApiServer {
     private static final String TAG = "DidiWatch";
     private static volatile ServerSocket ss;
+    private static volatile boolean starting = false;
+    private static final int[] FALLBACK_PORTS = {8766, 18766, 28766, 38766, 48766};
 
     public static synchronized void start(final Context c) {
-        if (ss != null) return;
+        if (ss != null || starting) return;   // 修: 原来 ss 在绑定成功前是 null, 并发会重复绑定
+        starting = true;
         new Thread(() -> loop(c)).start();
     }
 
     private static void loop(Context c) {
         try {
-            ServerSocket s = new ServerSocket(WatchConfig.API_PORT, 20,
-                    InetAddress.getByName("127.0.0.1"));
+            ServerSocket s = null;
+            int port = WatchConfig.get(c).apiPort();
+            for (int p : FALLBACK_PORTS) {
+                try {
+                    s = new ServerSocket(p, 20, InetAddress.getByName("127.0.0.1"));
+                    port = p;
+                    break;
+                } catch (Exception e) {
+                    Log.i(TAG, "端口 " + p + " 被占用, 换下一个");
+                }
+            }
+            if (s == null) {
+                Log.w(TAG, "所有候选端口都被占用, API 不可用");
+                starting = false;
+                return;
+            }
+            WatchConfig.get(c).setApiPort(port);
             ss = s;
-            Log.i(TAG, "API 已启动 http://127.0.0.1:" + WatchConfig.API_PORT + "/");
+            Log.i(TAG, "API 已启动 http://127.0.0.1:" + port + "/");
             while (true) {
                 final Socket sk = s.accept();
                 new Thread(() -> handle(c, sk)).start();
@@ -121,7 +139,7 @@ public class WatchApiServer {
                 r.put("act", cfg.act());
                 r.put("include_tree", cfg.includeTree());
                 r.put("callbacks", new JSONArray(cfg.callbacks()));
-                r.put("api_port", WatchConfig.API_PORT);
+                r.put("api_port", cfg.apiPort());
                 send(o, 200, r.toString());
                 return;
             }
