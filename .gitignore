@@ -1,0 +1,12 @@
+# Gradle
+.gradle/
+build/
+local.properties
+
+# IDE
+.idea/
+*.iml
+
+# 签名密钥绝不入库(只走 GitHub Secrets)
+*.jks
+*.keystore

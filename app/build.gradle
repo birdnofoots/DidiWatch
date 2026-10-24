@@ -1,0 +1,48 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'com.birdnofoots.didiwatch'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.birdnofoots.didiwatch'
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName '0.1.0'
+    }
+
+    // 固定签名: 密钥库由 GitHub Secrets 提供(KS_B64), 没有就退回 debug 签名
+    signingConfigs {
+        release {
+            def ks = System.getenv('ANDROID_KEYSTORE_PATH')
+            if (ks != null && !ks.isEmpty() && file(ks).exists()) {
+                storeFile file(ks)
+                storePassword System.getenv('ANDROID_KEYSTORE_PASSWORD')
+                keyAlias     System.getenv('ANDROID_KEY_ALIAS')
+                keyPassword  System.getenv('ANDROID_KEY_PASSWORD')
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            if (signingConfigs.release.storeFile != null) {
+                signingConfig signingConfigs.release
+            }
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    packagingOptions {
+        resources.excludes += ['META-INF/*']
+    }
+}
+
+// 刻意不引任何三方库: 原生 Activity + org.json, 构建快、依赖少
+dependencies { }

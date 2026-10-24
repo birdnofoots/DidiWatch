@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">滴滴看单</string>
+    <string name="service_label">滴滴看单 · 无障碍</string>
+    <string name="service_desc">监听滴滴车主订单卡界面的无障碍事件, 出现时通知本机脚本(零 adb 发现来单)。不读取任何数据, 只上报界面切换事件。</string>
+</resources>
