@@ -105,9 +105,9 @@ public class MainActivity extends android.app.Activity {
         boolean on = false;
         try {
             AccessibilityManager am = (AccessibilityManager) getSystemService(Context.ACCESSIBILITY_SERVICE);
-            List<AccessibilityManager.AccessibilityServiceInfo> list =
+            List<AccessibilityServiceInfo> list =
                     am.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK);
-            for (AccessibilityManager.AccessibilityServiceInfo i : list) {
+            for (AccessibilityServiceInfo i : list) {
                 String id = i.getId() == null ? "" : i.getId().toString();
                 if (id.contains(DidiWatchService.class.getName())) { on = true; break; }
             }
