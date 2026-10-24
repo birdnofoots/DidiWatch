@@ -59,7 +59,7 @@ public class DidiWatchService extends AccessibilityService {
         if (event == null) return;
         if (event.getEventType() != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return;
 
-        String pkg = event.getPackage() == null ? "" : event.getPackage().toString();
+        String pkg = event.getPackageName() == null ? "" : event.getPackageName().toString();
         if (!TARGET_PKG.equals(pkg)) return;
         String cls = event.getClassName() == null ? "" : event.getClassName().toString();
         if (!cls.contains(TARGET_ACT)) return;
@@ -125,11 +125,13 @@ public class DidiWatchService extends AccessibilityService {
                 o.put("v", node.getViewIdResourceName());
                 o.put("t", node.getText());
                 o.put("d", node.getContentDescription());
+                android.graphics.Rect rc = new android.graphics.Rect();
+                node.getBoundsInScreen(rc);
                 o.put("b", new JSONArray()
-                        .put(node.getBoundsInScreen().left)
-                        .put(node.getBoundsInScreen().top)
-                        .put(node.getBoundsInScreen().right)
-                        .put(node.getBoundsInScreen().bottom));
+                        .put(rc.left)
+                        .put(rc.top)
+                        .put(rc.right)
+                        .put(rc.bottom));
                 o.put("k", node.isClickable());
                 o.put("e", node.isEnabled());
                 out.put(o);

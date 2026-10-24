@@ -11,6 +11,7 @@ import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.view.accessibility.AccessibilityManager;
+import android.accessibilityservice.AccessibilityServiceInfo;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.LinearLayout;
@@ -105,7 +106,7 @@ public class MainActivity extends android.app.Activity {
         try {
             AccessibilityManager am = (AccessibilityManager) getSystemService(Context.ACCESSIBILITY_SERVICE);
             List<AccessibilityManager.AccessibilityServiceInfo> list =
-                    am.getEnabledAccessibilityServiceList(AccessibilityManager.FEEDBACK_ALL_MASK);
+                    am.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK);
             for (AccessibilityManager.AccessibilityServiceInfo i : list) {
                 String id = i.getId() == null ? "" : i.getId().toString();
                 if (id.contains(DidiWatchService.class.getName())) { on = true; break; }
