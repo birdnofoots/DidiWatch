@@ -8,8 +8,6 @@ import android.os.Bundle;
 import android.provider.Settings;
 import android.text.TextUtils;
 import android.util.TypedValue;
-import android.view.Gravity;
-import android.view.View;
 import android.view.accessibility.AccessibilityManager;
 import android.accessibilityservice.AccessibilityServiceInfo;
 import android.widget.Button;
@@ -18,24 +16,34 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import com.birdnofoots.didiwatch.lib.WatchApiServer;
+import com.birdnofoots.didiwatch.lib.WatchBus;
+import com.birdnofoots.didiwatch.lib.WatchConfig;
+import com.birdnofoots.didiwatch.lib.WatchService;
+
 import org.json.JSONObject;
 
+import java.security.SecureRandom;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 
-/** 状态页: 无障碍是否开启 / 最后事件 / 发测试事件 / 是否附带节点树 */
+/** 状态页: 无障碍是否开启 / 本机 API 地址与 token / 最后事件 / 测试 */
 public class MainActivity extends android.app.Activity {
     private static final String PREFS = "didiwatch";
-    private TextView tvStatus, tvLast;
+    private TextView tvStatus, tvLast, tvApi;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        WatchConfig cfg = WatchConfig.get(this);
+        WatchBus.init(this);
+        WatchApiServer.start(this);
+        if (cfg.token().isEmpty()) cfg.setToken(newToken());
+
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(32, 40, 32, 40);
         int p = (int) (16 * getResources().getDisplayMetrics().density);
         root.setPadding(p, p, p, p);
 
@@ -43,49 +51,50 @@ public class MainActivity extends android.app.Activity {
         tvStatus.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
         root.addView(tvStatus);
 
+        tvApi = new TextView(this);
+        tvApi.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        tvApi.setPadding(0, p, 0, p);
+        root.addView(tvApi);
+
         tvLast = new TextView(this);
         tvLast.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        tvLast.setPadding(0, p, 0, p);
         root.addView(tvLast);
 
         CheckBox cb = new CheckBox(this);
-        cb.setText("附带节点树(默认关, 打开后事件里会带完整节点)");
-        cb.setChecked(prefs().getBoolean("include_tree", false));
-        cb.setOnCheckedChangeListener((b, on) -> prefs().edit().putBoolean("include_tree", on).apply());
+        cb.setText("附带节点树(默认关)");
+        cb.setChecked(cfg.includeTree());
+        cb.setOnCheckedChangeListener((b, on) -> cfg.setIncludeTree(on));
         root.addView(cb);
 
-        Button open = new Button(this);
-        open.setText("打开无障碍设置");
-        open.setOnClickListener(v -> {
-            try {
-                startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
-            } catch (Exception e) {
-                tvLast.setText("打不开设置: " + e);
-            }
-        });
-        root.addView(open);
-
-        Button test = new Button(this);
-        test.setText("发一个测试事件");
-        test.setOnClickListener(v -> {
+        root.addView(btn("打开无障碍设置", v -> {
+            try { startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)); }
+            catch (Exception e) { tvLast.setText("打不开设置: " + e); }
+        }));
+        root.addView(btn("发一个测试事件", v -> {
             JSONObject o = new JSONObject();
             try {
                 o.put("kind", "test");
                 o.put("ts", System.currentTimeMillis());
-                o.put("origin", "apk");
-                o.put("pkg", DidiWatchService.TARGET_PKG);
-                o.put("cls", "manual_test");
+                o.put("origin", getPackageName());
             } catch (Exception ignored) {}
-            EventPoster.postAsync(o);
-            tvLast.setText("已发送测试事件 -> " + EventPoster.url());
-        });
-        root.addView(test);
+            WatchBus.publish(this, o);
+            tvLast.setText("已发测试事件 -> " + WatchBus.latest());
+        }));
+        root.addView(btn("订阅本机脚本回调", v -> {
+            WatchConfig c = WatchConfig.get(this);
+            java.util.Set<String> s = c.callbacks();
+            s.add("http://127.0.0.1:8765/didi_event");
+            c.setCallbacks(s);
+            tvApi.setText(apiText(c));
+            tvLast.setText("已订阅: http://127.0.0.1:8765/didi_event");
+        }));
 
         TextView tip = new TextView(this);
-        tip.setText("\n用法:\n1. 打开无障碍设置, 启用「滴滴看单 · 无障碍」\n"
-                + "2. 保持 Termux 里的脚本在跑(它监听 8765 端口)\n"
-                + "3. 滴滴订单卡一弹出, 本 App 会立刻通知脚本\n\n"
-                + "上报地址: " + EventPoster.url());
+        tip.setText("\n其它 App 怎么用:\n"
+                + "  GET  http://127.0.0.1:8766/v1/health\n"
+                + "  GET  http://127.0.0.1:8766/v1/events/latest\n"
+                + "  POST http://127.0.0.1:8766/v1/subscribe  {\"url\":\"...\"}\n"
+                + "  广播: action=com.birdnofoots.didiwatch.EVENT extra=json");
         tip.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         tip.setPadding(0, p, 0, 0);
         root.addView(tip);
@@ -101,6 +110,13 @@ public class MainActivity extends android.app.Activity {
         refresh();
     }
 
+    private Button btn(String label, android.view.View.OnClickListener l) {
+        Button b = new Button(this);
+        b.setText(label);
+        b.setOnClickListener(l);
+        return b;
+    }
+
     private void refresh() {
         boolean on = false;
         try {
@@ -108,20 +124,39 @@ public class MainActivity extends android.app.Activity {
             List<AccessibilityServiceInfo> list =
                     am.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK);
             for (AccessibilityServiceInfo i : list) {
-                String id = i.getId() == null ? "" : i.getId().toString();
-                if (id.contains(DidiWatchService.class.getName())) { on = true; break; }
+                String id = i.getId() == null ? "" : i.getId();
+                if (id.contains(WatchService.class.getName())) { on = true; break; }
             }
         } catch (Exception ignored) {}
         tvStatus.setText(on ? "✅ 无障碍已开启" : "❌ 无障碍未开启(去系统设置打开)");
         tvStatus.setTextColor(on ? Color.parseColor("#0a7d28") : Color.parseColor("#c62828"));
 
+        WatchConfig cfg = WatchConfig.get(this);
+        tvApi.setText(apiText(cfg));
+
         long at = prefs().getLong("last_at", 0);
         String cls = prefs().getString("last_cls", "");
         String t = at > 0 ? new SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(new Date(at)) : "-";
-        tvLast.setText("最后事件: " + t + "  " + (TextUtils.isEmpty(cls) ? "" : cls));
+        JSONObject lat = WatchBus.latest();
+        tvLast.setText("最后事件: " + (lat != null && lat.has("ts") ? lat.toString() : "-")
+                + "\n" + t + " " + (TextUtils.isEmpty(cls) ? "" : cls));
+    }
+
+    private String apiText(WatchConfig cfg) {
+        return "本机 API: http://127.0.0.1:8766/\n"
+                + "token: " + cfg.token()
+                + (cfg.pkg().isEmpty() ? "" : "\n监听: " + cfg.pkg() + " / " + cfg.act());
     }
 
     private SharedPreferences prefs() {
         return getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+    }
+
+    private static String newToken() {
+        byte[] b = new byte[16];
+        new SecureRandom().nextBytes(b);
+        StringBuilder sb = new StringBuilder();
+        for (byte x : b) sb.append(String.format(Locale.US, "%02x", x));
+        return sb.toString();
     }
 }

@@ -5,5 +5,5 @@
     android:accessibilityFlags="flagReportViewIds|flagRetrieveInteractiveWindows|flagIncludeNotImportantViews"
     android:canRetrieveWindowContent="true"
     android:notificationTimeout="100"
-    android:description="@string/service_desc"
-    android:summary="@string/service_desc"/>
+    android:description="@string/watch_service_desc"
+    android:summary="@string/watch_service_desc"/>

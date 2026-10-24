@@ -6,4 +6,5 @@ dependencyResolutionManagement {
     repositories { google(); mavenCentral() }
 }
 rootProject.name = "DidiWatch"
-include ':app'
+include ':lib'     // 可复用的事件服务核心(别的 App 可作为依赖)
+include ':app'     // 演示用独立 APK

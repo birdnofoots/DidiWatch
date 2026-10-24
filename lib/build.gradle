@@ -1,0 +1,14 @@
+// 可复用库: 别的 App 直接 implementation project(':lib')
+// manifest 合并会把 WatchService + 无障碍配置自动带进宿主
+plugins { id 'com.android.library' }
+
+android {
+    namespace 'com.birdnofoots.didiwatch.lib'
+    compileSdk 34
+    defaultConfig { minSdk 24 }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+dependencies { }
