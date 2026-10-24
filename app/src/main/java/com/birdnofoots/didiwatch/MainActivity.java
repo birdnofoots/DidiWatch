@@ -3,6 +3,10 @@ package com.birdnofoots.didiwatch;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.database.ContentObserver;
+import android.os.Handler;
+import android.os.Looper;
+import android.provider.Settings;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.provider.Settings;
@@ -33,6 +37,13 @@ import java.util.Locale;
 public class MainActivity extends android.app.Activity {
     private static final String PREFS = "didiwatch";
     private TextView tvStatus, tvLast, tvApi;
+    private final Handler ui = new Handler(Looper.getMainLooper());
+    private ContentObserver a11yObs;
+
+    // 1 秒轮询: 授权与系统真正绑定之间有延迟(实测要移除再加回才重绑), 轮询兜底
+    private final Runnable ticker = new Runnable() {
+        @Override public void run() { refresh(); ui.postDelayed(this, 1000); }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -107,7 +118,33 @@ public class MainActivity extends android.app.Activity {
     @Override
     protected void onResume() {
         super.onResume();
-        refresh();
+        registerA11yObserver();   // 用户在设置里开关无障碍时立即刷新
+        ui.post(ticker);
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        ui.removeCallbacks(ticker);
+        if (a11yObs != null) {
+            try { getContentResolver().unregisterContentObserver(a11yObs); } catch (Exception ignored) {}
+            a11yObs = null;
+        }
+    }
+
+    /** 监听系统无障碍开关变化 -> 立刻刷新状态 */
+    private void registerA11yObserver() {
+        if (a11yObs != null) return;
+        a11yObs = new ContentObserver(ui) {
+            @Override public void onChange(boolean selfChange) { refresh(); }
+        };
+        try {
+            getContentResolver().registerContentObserver(
+                    Settings.Secure.getUriFor(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES),
+                    true, a11yObs);
+        } catch (Exception e) {
+            a11yObs = null;
+        }
     }
 
     private Button btn(String label, android.view.View.OnClickListener l) {
@@ -128,8 +165,22 @@ public class MainActivity extends android.app.Activity {
                 if (id.contains(WatchService.class.getName())) { on = true; break; }
             }
         } catch (Exception ignored) {}
-        tvStatus.setText(on ? "✅ 无障碍已开启" : "❌ 无障碍未开启(去系统设置打开)");
-        tvStatus.setTextColor(on ? Color.parseColor("#0a7d28") : Color.parseColor("#c62828"));
+        // 三态: 服务真连上 / 已授权但系统还没绑定 / 完全没开
+        boolean alive = WatchService.alive;
+        String txt;
+        int color;
+        if (alive) {
+            txt = "✅ 无障碍已开启(服务已连接)";
+            color = Color.parseColor("#0a7d28");
+        } else if (on) {
+            txt = "⏳ 已授权, 等系统绑定(通常几秒内; 无效就到设置里关掉本项再开)";
+            color = Color.parseColor("#ef6c00");
+        } else {
+            txt = "❌ 无障碍未开启(去系统设置打开)";
+            color = Color.parseColor("#c62828");
+        }
+        tvStatus.setText(txt);
+        tvStatus.setTextColor(color);
 
         WatchConfig cfg = WatchConfig.get(this);
         tvApi.setText(apiText(cfg));

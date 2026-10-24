@@ -48,6 +48,19 @@ public class WatchService extends AccessibilityService {
     public void onInterrupt() {}
 
     @Override
+    public boolean onUnbind(android.content.Intent intent) {
+        alive = false;
+        Log.i(TAG, "无障碍服务已解绑");
+        return super.onUnbind(intent);
+    }
+
+    @Override
+    public void onDestroy() {
+        alive = false;
+        super.onDestroy();
+    }
+
+    @Override
     public void onAccessibilityEvent(AccessibilityEvent event) {
         if (event == null) return;
         if (event.getEventType() != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return;
