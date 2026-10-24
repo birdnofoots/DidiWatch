@@ -3,7 +3,7 @@
 plugins { id 'com.android.library' }
 
 android {
-    namespace 'com.birdnofoots.didiwatch.lib'
+    namespace 'com.birdnofoots.eventviewer.lib'
     compileSdk 34
     defaultConfig { minSdk 24 }
     compileOptions {

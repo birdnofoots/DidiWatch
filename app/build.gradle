@@ -1,14 +1,14 @@
 plugins { id 'com.android.application' }
 
 android {
-    namespace 'com.birdnofoots.didiwatch'
+    namespace 'com.birdnofoots.eventviewer'
     compileSdk 34
     defaultConfig {
-        applicationId 'com.birdnofoots.didiwatch'
+        applicationId 'com.birdnofoots.eventviewer'
         minSdk 24
         targetSdk 34
-        versionCode 1
-        versionName '0.2.0'
+        versionCode 3
+        versionName '0.3.0'
     }
     signingConfigs {
         release {

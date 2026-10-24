@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="watch_service_label">界面事件服务</string>
-    <string name="watch_service_desc">监听指定应用界面的无障碍窗口切换事件, 并把事件通知本机其它应用(localhost HTTP 回调/广播)。不读取、不上报任何数据。</string>
+    <string name="app_name">事件查看器</string>
+    <string name="watch_service_label">事件服务</string>
+    <string name="watch_service_desc">监听指定应用界面的无障碍窗口切换事件, 并通知本机其它应用(localhost HTTP 回调/广播)。不读取、不上报任何数据。</string>
 </resources>

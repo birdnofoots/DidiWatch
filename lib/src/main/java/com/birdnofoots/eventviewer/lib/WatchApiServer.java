@@ -1,4 +1,4 @@
-package com.birdnofoots.didiwatch.lib;
+package com.birdnofoots.eventviewer.lib;
 
 import android.content.Context;
 import android.util.Log;
@@ -119,7 +119,7 @@ public class WatchApiServer {
                         + "GET  /v1/events/tail?n=50\n"
                         + "POST /v1/subscribe    {url}\n"
                         + "POST /v1/unsubscribe  {url}\n"
-                        + "广播: action=com.birdnofoots.didiwatch.EVENT extra=json\n";
+                        + "广播: action=com.birdnofoots.eventviewer.EVENT extra=json\n";
                 sendText(o, 200, docs);
                 return;
             }

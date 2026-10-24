@@ -10,3 +10,6 @@ local.properties
 # 签名密钥绝不入库(只走 GitHub Secrets)
 *.jks
 *.keystore
+
+# 编译产物不入库
+产物/

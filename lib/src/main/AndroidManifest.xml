@@ -3,7 +3,7 @@
     <uses-permission android:name="android.permission.INTERNET"/>
     <application android:usesCleartextTraffic="true">
         <service
-            android:name="com.birdnofoots.didiwatch.lib.WatchService"
+            android:name="com.birdnofoots.eventviewer.lib.WatchService"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
             android:exported="true"
             android:label="@string/watch_service_label">

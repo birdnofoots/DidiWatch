@@ -1,4 +1,4 @@
-package com.birdnofoots.didiwatch;
+package com.birdnofoots.eventviewer;
 
 import android.content.Context;
 import android.content.Intent;
@@ -20,10 +20,10 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
-import com.birdnofoots.didiwatch.lib.WatchApiServer;
-import com.birdnofoots.didiwatch.lib.WatchBus;
-import com.birdnofoots.didiwatch.lib.WatchConfig;
-import com.birdnofoots.didiwatch.lib.WatchService;
+import com.birdnofoots.eventviewer.lib.WatchApiServer;
+import com.birdnofoots.eventviewer.lib.WatchBus;
+import com.birdnofoots.eventviewer.lib.WatchConfig;
+import com.birdnofoots.eventviewer.lib.WatchService;
 
 import org.json.JSONObject;
 
@@ -77,6 +77,9 @@ public class MainActivity extends android.app.Activity {
         cb.setOnCheckedChangeListener((b, on) -> cfg.setIncludeTree(on));
         root.addView(cb);
 
+        root.addView(btn("选择监听的应用", v -> {
+            startActivity(new Intent(this, AppPickerActivity.class));
+        }));
         root.addView(btn("打开无障碍设置", v -> {
             try { startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)); }
             catch (Exception e) { tvLast.setText("打不开设置: " + e); }
@@ -105,7 +108,7 @@ public class MainActivity extends android.app.Activity {
                 + "  GET  http://127.0.0.1:<apiPort>/v1/health\n"
                 + "  GET  http://127.0.0.1:<apiPort>/v1/events/latest\n"
                 + "  POST http://127.0.0.1:<apiPort>/v1/subscribe  {\"url\":\"...\"}\n"
-                + "  广播: action=com.birdnofoots.didiwatch.EVENT extra=json");
+                + "  广播: action=com.birdnofoots.eventviewer.EVENT extra=json");
         tip.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         tip.setPadding(0, p, 0, 0);
         root.addView(tip);
@@ -196,7 +199,10 @@ public class MainActivity extends android.app.Activity {
     private String apiText(WatchConfig cfg) {
         return "本机 API: http://127.0.0.1:" + cfg.apiPort() + "/\n"
                 + "token: " + cfg.token()
-                + (cfg.pkg().isEmpty() ? "" : "\n监听: " + cfg.pkg() + " / " + cfg.act());
+                + (cfg.pkgs().isEmpty()
+                        ? "\n监听: (未选, 点「选择监听的应用」)"
+                        : "\n监听(" + cfg.pkgs().size() + "): " + cfg.pkg()
+                          + (cfg.act().isEmpty() ? "" : " / " + cfg.act()));
     }
 
     private SharedPreferences prefs() {

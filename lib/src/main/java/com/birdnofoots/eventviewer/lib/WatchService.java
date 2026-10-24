@@ -1,4 +1,4 @@
-package com.birdnofoots.didiwatch.lib;
+package com.birdnofoots.eventviewer.lib;
 
 import android.accessibilityservice.AccessibilityService;
 import android.content.Context;
@@ -67,7 +67,7 @@ public class WatchService extends AccessibilityService {
         WatchConfig cfg = WatchConfig.get(this);
 
         String pkg = event.getPackageName() == null ? "" : event.getPackageName().toString();
-        if (!cfg.pkg().equals(pkg)) return;
+        if (!cfg.pkgs().contains(pkg)) return;   // 支持同时监听多个应用
         String cls = event.getClassName() == null ? "" : event.getClassName().toString();
         if (!cfg.act().isEmpty() && !cls.contains(cfg.act())) return;
 

@@ -1,4 +1,4 @@
-package com.birdnofoots.didiwatch.lib;
+package com.birdnofoots.eventviewer.lib;
 
 import android.content.Context;
 import android.content.Intent;
@@ -16,12 +16,12 @@ import java.util.Deque;
 /**
  * 事件总线: 每个事件同时分发给
  *   1) 内存环形缓冲(GET /v1/events/*)
- *   2) 系统广播 action=com.birdnofoots.didiwatch.EVENT(运行时注册的接收器能收到)
+ *   2) 系统广播 action=com.birdnofoots.eventviewer.EVENT(运行时注册的接收器能收到)
  *   3) 已订阅的 HTTP 回调地址(POST)
  */
 public class WatchBus {
     private static final String TAG = "DidiWatch";
-    public static final String ACTION_EVENT = "com.birdnofoots.didiwatch.EVENT";
+    public static final String ACTION_EVENT = "com.birdnofoots.eventviewer.EVENT";
     private static final int MAX = 100;
 
     private static final Deque<JSONObject> RECENT = new ArrayDeque<>();
