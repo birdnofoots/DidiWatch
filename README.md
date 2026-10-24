@@ -2,6 +2,18 @@
 
 自建的无障碍事件监听器, 用来**替代 `adb dumpsys` 轮询发现来单**, 实现零 adb。
 
+## 它是什么
+
+一个**可复用的无障碍事件平台**：
+
+- `:lib` —— 核心库（别的 App `implementation project(':lib')` 即可，manifest 合并会自动把
+  `WatchService` 声明进宿主）
+- `:app` —— 演示壳 APK，也是滴滴这套的宿主
+
+同机其它 App 有**两种方式**拿到事件（都不需要无障碍授权）：
+1. **localhost HTTP API**（127.0.0.1:8766）—— 推荐，跨语言、可跨进程、可查询历史
+2. **系统广播** `com.birdnofoots.didiwatch.EVENT`（extra `json`）—— 运行时注册接收器即可
+
 ## 它做什么
 
 监听 Android 原生无障碍事件(`TYPE_WINDOW_STATE_CHANGED`), 一旦滴滴车主的
@@ -26,6 +38,20 @@ POST http://127.0.0.1:8765/didi_event
 
 GitHub Actions 自动编译(推 main 或手动触发), 产物在 Actions Artifacts 里。
 固定签名密钥通过 Secrets 注入(`ANDROID_KEYSTORE_BASE64` 等), 未配置时退回 debug 签名。
+
+## 本机 API
+
+```
+GET  /v1/health              服务状态
+GET  /v1/config              当前配置
+POST /v1/config              {pkg, act, include_tree}
+GET  /v1/events/latest       最近一次事件
+GET  /v1/events/tail?n=50    最近若干条
+POST /v1/subscribe           {"url":"http://127.0.0.1:PORT/path"}  订阅回调
+POST /v1/unsubscribe         {"url":"..."}
+```
+鉴权：App 首次启动会生成一个 token 显示在界面上；配置了 token 后请求需带 `?token=`。
+**服务只监听 127.0.0.1**，不出网。
 
 ## 使用
 
