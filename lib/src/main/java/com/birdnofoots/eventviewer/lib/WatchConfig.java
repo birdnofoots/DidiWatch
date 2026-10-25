@@ -67,6 +67,13 @@ public class WatchConfig {
     public int cardRetries() { return sp.getInt("card_retries", 3); }
     public void setCardRetries(int v) { sp.edit().putInt("card_retries", v).apply(); }
 
+    /** 影子模式: 算出动作决策但不真点(阶段2 默认开, 切主前才关) */
+    public boolean shadowAction() { return sp.getBoolean("shadow_action", true); }
+    public void setShadowAction(boolean b) { sp.edit().putBoolean("shadow_action", b).apply(); }
+    /** 卡片出现后跟踪按钮状态(倒计时 -> 可点), 状态一变就上报 */
+    public boolean actionTrack() { return sp.getBoolean("action_track", true); }
+    public void setActionTrack(boolean b) { sp.edit().putBoolean("action_track", b).apply(); }
+
     public boolean includeTree() { return sp.getBoolean("include_tree", false); }
     public void setIncludeTree(boolean b) { sp.edit().putBoolean("include_tree", b).apply(); }
 

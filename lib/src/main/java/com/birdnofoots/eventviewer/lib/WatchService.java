@@ -11,6 +11,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.util.ArrayDeque;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Deque;
@@ -40,6 +41,9 @@ public class WatchService extends AccessibilityService {
     private volatile long lastCardCheck = 0L;      // 卡片检查冷却(防事件洪水)
     private volatile long lastCardReport = 0L;     // 同一张卡去重
     private volatile String lastCardKey = "";
+    private final AtomicBoolean tracking = new AtomicBoolean(false);   // 卡片按钮跟踪中(同一时间只跟一张)
+    private final Object trackLock = new Object();                     // 事件唤醒跟踪线程用
+    private volatile long lastTrackCheck = 0L;                        // 上次复查时刻(限流)
 
     @Override
     protected void onServiceConnected() {
@@ -102,6 +106,12 @@ public class WatchService extends AccessibilityService {
         // 卡片识别: 事件到后延迟取树(卡片晚于事件渲染), 有冷却防洪
         if (cfg.cardDetect() && type == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
             maybeCheckCard(cfg, pkg, cls);
+        }
+
+        // 按钮跟踪: 内容变化事件立刻唤醒复查(抢单按钮从"3秒后开始抢单"变"抢预约单"
+        // 就是一次内容变化, 事件驱动才能做到和 GKD 一样即时)
+        if (type == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED && tracking.get()) {
+            synchronized (trackLock) { trackLock.notifyAll(); }
         }
 
         // 窗口状态变化照常上报
@@ -176,15 +186,89 @@ public class WatchService extends AccessibilityService {
                         card.put("event_cls", lastContentCls);                 // 触发这次取数的内容事件来源
                         card.put("etype", AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED);
                     } catch (Exception ignored) {}
+                    // ★影子动作决策: 复刻 GKD 两条规则, 只算不点(阶段2)
+                    try {
+                        card.put("act", ActionEngine.decide(nodes, card));
+                        card.put("shadow", cfg.shadowAction());
+                    } catch (Exception ignored) {}
                     WatchBus.publish(WatchService.this, card);
                     Log.i(TAG, "卡片识别 价=" + card.optString("price")
                             + " 第" + (i + 1) + "次(" + ((i + 1) * cfg.cardDelayMs()) + "ms) 取到"
                             + " 距事件" + (SystemClock.elapsedRealtime() - lastContentAt) + "ms"
                             + " 来源=" + lastContentCls);
+                    if (cfg.actionTrack()) startTrack(card);
                     return;
                 }
             }
         }).start();
+    }
+
+    /**
+     * 跟进复查：卡片出现后持续盯两个按钮的状态（倒计时中 -> 可点），
+     * 状态一变就上报一条 kind=card_action 事件（影子模式，只报不点）。
+     * 目的：搞清楚"抢单按钮到底是哪个节点、在什么时刻变成可点"，
+     *       这是把点击从 GKD 切到 APK 的必要前置数据。
+     */
+    private void startTrack(final JSONObject card) {
+        if (!tracking.compareAndSet(false, true)) return;   // 已有卡在跟踪
+        final String p0 = card.optString("price", "");
+        final long t0 = System.currentTimeMillis();
+        new Thread(new Runnable() {
+            @Override public void run() {
+                String lastState = "";
+                try {
+                    for (int i = 0; i < 60; i++) {          // 最多 60 次(事件可提前唤醒)
+                        // 等 400ms, 但事件来了立刻醒
+                        synchronized (trackLock) {
+                            try { trackLock.wait(400); } catch (Exception ignored) {}
+                        }
+                        // 最小间隔 80ms: 事件洪水时别把 CPU 打满
+                        long gap = SystemClock.elapsedRealtime() - lastTrackCheck;
+                        if (gap < 80) {
+                            try { Thread.sleep(80 - gap); } catch (Exception e) { break; }
+                        }
+                        lastTrackCheck = SystemClock.elapsedRealtime();
+                        JSONArray nodes = dumpTree();
+                        boolean hasCard = false;
+                        for (int j = 0; j < nodes.length(); j++) {
+                            JSONObject n = nodes.optJSONObject(j);
+                            if (n != null && n.optString("v", "").endsWith("order_review_fragment")) {
+                                hasCard = true; break;
+                            }
+                        }
+                        if (!hasCard) { publishAction(card, p0, t0, "card_gone", "", false); break; }
+                        String state = ActionEngine.buttonState(nodes);
+                        if (!state.equals(lastState)) {
+                            lastState = state;
+                            JSONObject cur = findCard(nodes);
+                            JSONObject dec = ActionEngine.decide(nodes, cur == null ? card : cur);
+                            publishAction(card, p0, t0, state, dec.optString("dec"),
+                                    dec.optBoolean("right_clickable", false));
+                        }
+                    }
+                } finally {
+                    tracking.set(false);
+                }
+            }
+        }).start();
+    }
+
+    /** 上报一次按钮状态变化 */
+    private void publishAction(JSONObject card, String price, long t0, String state, String dec, boolean clickable) {
+        JSONObject p = new JSONObject();
+        try {
+            p.put("kind", "card_action");
+            p.put("ts", System.currentTimeMillis());
+            p.put("origin", getPackageName());
+            p.put("pkg", card.optString("pkg", ""));
+            p.put("price", price);
+            p.put("state", state);
+            p.put("dec", dec);
+            p.put("clickable", clickable);
+            p.put("since_card_ms", System.currentTimeMillis() - t0);
+            p.put("shadow", true);
+        } catch (Exception ignored) {}
+        WatchBus.publish(this, p);
     }
 
     /**
@@ -304,10 +388,13 @@ public class WatchService extends AccessibilityService {
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root == null) return out;
         Deque<AccessibilityNodeInfo> q = new ArrayDeque<>();
+        Deque<Integer> pq = new ArrayDeque<>();     // 父节点在 out 里的下标(-1=根)
         q.add(root);
+        pq.add(-1);
         int n = 0;
         while (!q.isEmpty() && n < MAX_NODES) {
             AccessibilityNodeInfo node = q.poll();
+            Integer pid = pq.poll();
             if (node == null) continue;
             try {
                 Rect rc = new Rect();
@@ -320,11 +407,13 @@ public class WatchService extends AccessibilityService {
                 o.put("b", new JSONArray().put(rc.left).put(rc.top).put(rc.right).put(rc.bottom));
                 o.put("k", node.isClickable());
                 o.put("e", node.isEnabled());
+                o.put("pid", pid == null ? -1 : pid);   // 父节点下标: 用于算 preorder(复刻 GKD <<n)
                 out.put(o);
+                int myIdx = n;
                 n++;
                 for (int i = 0; i < node.getChildCount(); i++) {
                     AccessibilityNodeInfo ch = node.getChild(i);
-                    if (ch != null) q.add(ch);
+                    if (ch != null) { q.add(ch); pq.add(myIdx); }
                 }
             } catch (Exception ignored) {}
         }
