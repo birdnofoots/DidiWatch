@@ -105,6 +105,37 @@ public class WatchConfig {
     }
     public void setRules(String json) { sp.edit().putString("rules", json).apply(); }
 
+    /**
+     * 内置默认动作规则(线路A) —— 滴滴车主专用。
+     * ★只是算决策, **不执行任何点击**(影子模式)。
+     * 线路B = 调用者 POST /v1/action_rules 配置的规则, 同一套引擎评估。
+     */
+    public static final String DEFAULT_ACTION_RULES =
+        "[{" +
+        "\"name\":\"didi_no_grab\"," +
+        "\"when\":{\"all\":[{\"field\":\"price\",\"lt\":80}," +
+        "{\"node\":\"title_left_btn\",\"text\":\"不抢\"}]}," +
+        "\"target\":\"order_review_left_btn\",\"dec\":\"tap_no\",\"need_stable\":true}," +
+        "{" +
+        "\"name\":\"didi_grab\"," +
+        "\"when\":{\"all\":[{\"field\":\"price\",\"gt\":99}]}," +
+        "\"target\":\"order_review_right_btn\",\"dec\":\"tap_grab\"," +
+        "\"need_clickable\":true,\"need_stable\":true}" +
+        "}]";
+
+    /** 线路B: 调用者可写的动作规则(没配置就用内置默认) */
+    public JSONArray actionRules() {
+        String j = sp.getString("action_rules", "");
+        if (j == null || j.trim().isEmpty()) {
+            try { return new org.json.JSONArray(DEFAULT_ACTION_RULES); } catch (Exception e) { return null; }
+        }
+        try { return new org.json.JSONArray(j); }
+        catch (Exception e) {
+            try { return new org.json.JSONArray(DEFAULT_ACTION_RULES); } catch (Exception e2) { return null; }
+        }
+    }
+    public void setActionRules(String json) { sp.edit().putString("action_rules", json).apply(); }
+
     public String token() { return sp.getString("token", ""); }
     public void setToken(String v) { sp.edit().putString("token", v).apply(); }
 }

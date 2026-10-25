@@ -3,106 +3,85 @@ package com.birdnofoots.eventviewer.lib;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
- * 影子动作引擎 —— 1:1 复刻 GKD 的两条规则(组0 不抢 / 组1 抢单)，**只算不点**。
+ * 影子动作引擎 —— **只算不点**。
  *
- * 目的：让 APK 自己算出"该不该点、点什么"，与 GKD 的实际动作逐条对账；
- *       零误判之后才考虑把点击切到 APK（GKD 下线）。
+ * 两条线路并行评估, 都只产出决策(绝不执行任何点击):
+ *   线路A: 内置默认动作规则(WatchConfig.DEFAULT_ACTION_RULES) —— 滴滴车主专用
+ *   线路B: 调用者通过 POST /v1/action_rules 配置的规则
+ * 两条线路走**同一个引擎**, 所以结果天然可比; 事件里带 act / act_b / act_cmp 三个字段。
  *
- * 复刻口径(与 gkd/didi_rule.json5 对齐)：
- *   组0 不抢：title_left_btn.text == '不抢'  且  价 < 80
- *             → 目标 order_review_left_btn
- *   组1 抢单：价 > 99（整数截断，等价"价 >= 100"）
- *             → 目标 order_review_right_btn；**按钮 clickable=true 才算真能点**
- *               （倒计时"3秒后开始抢单"期间是 false，点不动）
+ * 规则格式(JSON 数组):
+ * [
+ *   {"name":"didi_no_grab",
+ *    "when":{"all":[{"field":"price","lt":80},
+ *                   {"node":"title_left_btn","text":"不抢"}]},
+ *    "target":"order_review_left_btn", "dec":"tap_no", "need_stable":true},
+ *   {"name":"didi_grab",
+ *    "when":{"all":[{"field":"price","gt":99}]},
+ *    "target":"order_review_right_btn", "dec":"tap_grab", "need_clickable":true}
+ * ]
  *
- * 门槛比较一律按 GKD 的"整数截断"：79.99→79 放行，80.00→80 拒(不抢侧)。
+ * 条件种类:
+ *   {"field":"price"|"dist_me"|"dist_all", "lt"|"gt"|"lte"|"gte": 数值}
+ *   {"node":"vid后缀", "text":"文字"}      节点文本等于
+ *   {"node":"vid后缀", "exists":true}      节点存在
+ *   {"node":"vid后缀", "clickable":true}   节点可点
+ * 门槛比较按 GKD 口径**整数截断**(79.99->79, 80.00->80)
  */
 public final class ActionEngine {
 
-    public static final String DEC_NONE = "none";         // 不动作
-    public static final String DEC_TAP_NO = "tap_no";     // 点"不抢"
-    public static final String DEC_TAP_GRAB = "tap_grab"; // 点"抢单"
-    public static final String DEC_WAIT = "wait";         // 条件满足，但按钮此刻还不可点
+    public static final String DEC_NONE = "none";           // 不动作
+    public static final String DEC_TAP_NO = "tap_no";       // 应点「不抢」
+    public static final String DEC_TAP_GRAB = "tap_grab";   // 应点「抢单」
+    public static final String DEC_WAIT = "wait";           // 条件满足, 但按钮此刻不可点
+    public static final String DEC_WAIT_PRICE = "wait_price"; // 价格还没稳定, 等稳定再判
 
     private ActionEngine() {}
 
-    /** 对一张卡片算出动作决策；card 可以是 null（只有节点树） */
-    public static JSONObject decide(JSONArray nodes, JSONObject card) {
+    /** 评估一套规则; rules 为 null/空 -> 不匹配任何动作 */
+    public static JSONObject decide(JSONArray nodes, JSONObject card, JSONArray rules) {
         JSONObject o = new JSONObject();
+        StringBuilder why = new StringBuilder();
+        boolean unstable = false;
         try {
             o.put("dec", DEC_NONE);
-            o.put("grp", 0);
             o.put("target_vid", "");
-            o.put("reason", "无卡片");
-
-            if (nodes == null || nodes.length() == 0) return o;
-
-            // ---- 取节点 ----
-            JSONObject titleLeft = find(nodes, "title_left_btn");
-            JSONObject leftBtn = find(nodes, "order_review_left_btn");
-            JSONObject rightBtn = find(nodes, "order_review_right_btn");
-            JSONObject titleRight = find(nodes, "title_right_btn");
-
-            String leftText = titleLeft == null ? "" : titleLeft.optString("t", "");
-            String rightText = titleRight == null ? "" : titleRight.optString("t", "");
-            boolean rightClickable = (rightBtn != null && rightBtn.optBoolean("k", false))
-                    || (titleRight != null && titleRight.optBoolean("k", false));
-            boolean leftClickable = leftBtn != null && leftBtn.optBoolean("k", false);
-
-            // ---- 取价(GKD 口径: 没有小数点会导致 GKD 表达式失败) ----
-            String priceText = card == null ? "" : card.optString("price", "");
-            if (priceText.isEmpty()) {
-                JSONObject pn = find(nodes, "price_info_card_title");
-                priceText = pn == null ? "" : pn.optString("t", "");
-            }
-            boolean[] ok = new boolean[1];
-            int priceInt = gkdInt(priceText, ok);
-
-            o.put("price_text", priceText);
-            if (ok[0]) o.put("price_int", priceInt); else o.put("price_int", JSONObject.NULL);
-            o.put("left_text", leftText);
-            o.put("right_text", rightText);
-            o.put("right_clickable", rightClickable);
-            o.put("left_clickable", leftClickable);
-            if (card != null && card.has("dist_me")) o.put("dist_me", card.optDouble("dist_me"));
-            if (card != null && card.has("dist_all")) o.put("dist_all", card.optDouble("dist_all"));
-
-            // ---- 结构链校验: 复刻 GKD 的 <<(10..16) 先序偏移链 ----
-            // APK 的树带 pid(父在输出数组里的下标), 这里自己算 preorder 索引,
-            // 检查"价格节点"是不是"卡片容器"的子孙且偏移落在 9..15(=<<10..16)。
-            // 离线复算 222/222 张真卡偏移恒为 12, 所以这条链等价于"价格属于这张卡"。
-            String chain = chainState(nodes);
-            o.put("chain", chain);
-
-            boolean isBooking = leftBtn != null;   // 有"不抢/抢预约单"左按钮 = 预约单卡
-
-            // ---- 组0：不抢（价 < 80）----
-            if (isBooking && "不抢".equals(leftText) && ok[0] && priceInt < 80) {
-                o.put("dec", DEC_TAP_NO);
-                o.put("grp", 0);
-                o.put("target_vid", "order_review_left_btn");
-                o.put("reason", "价" + priceInt + "<80 且有'不抢'按钮");
+            o.put("reason", "无规则命中");
+            if (nodes == null || nodes.length() == 0 || rules == null || rules.length() == 0) {
+                o.put("reason", "没有可用规则");
                 return o;
             }
-
-            // ---- 组1：抢单（价 > 99）----
-            if (isBooking && ok[0] && priceInt > 99) {
-                o.put("grp", 1);
-                if (rightClickable) {
-                    o.put("dec", DEC_TAP_GRAB);
-                    o.put("target_vid", "order_review_right_btn");
-                    o.put("reason", "价" + priceInt + ">99 且抢单按钮可点(" + rightText + ")");
-                } else {
-                    o.put("dec", DEC_WAIT);
-                    o.put("target_vid", "order_review_right_btn");
-                    o.put("reason", "价" + priceInt + ">99 但抢单按钮此刻不可点(" + rightText + ")");
+            for (int i = 0; i < rules.length(); i++) {
+                JSONObject r = rules.optJSONObject(i);
+                if (r == null) continue;
+                StringBuilder rw = new StringBuilder();
+                boolean ok = matchWhen(r.optJSONObject("when"), nodes, card, rw);
+                boolean needStable = r.optBoolean("need_stable", false);
+                if (needStable && !isPriceStable(card)) {
+                    unstable = true;
+                    why.append(r.optString("name", "?")).append("(等价格稳定) ");
+                    continue;
                 }
+                if (!ok) { why.append(r.optString("name", "?")).append("(不满足) "); continue; }
+                String dec = r.optString("dec", DEC_NONE);
+                String target = r.optString("target", "");
+                o.put("dec", dec);
+                o.put("rule", r.optString("name", "?"));
+                o.put("target_vid", target);
+                if (r.optBoolean("need_clickable", false) && !targetClickable(nodes, target)) {
+                    o.put("dec", DEC_WAIT);
+                    o.put("reason", "规则命中但按钮此刻不可点(" + rw + ")");
+                    return o;
+                }
+                o.put("reason", "规则" + r.optString("name", "?") + " 命中: " + rw);
                 return o;
             }
-
-            o.put("dec", DEC_NONE);
-            o.put("reason", ok[0] ? ("价" + priceInt + " 不满足门槛") : "价格无法按 GKD 口径取整");
+            if (unstable) { o.put("dec", DEC_WAIT_PRICE); o.put("reason", why.toString().trim()); }
+            else o.put("reason", why.length() > 0 ? why.toString().trim() : "无规则命中");
             return o;
         } catch (Exception e) {
             try { o.put("dec", DEC_NONE); o.put("reason", "异常:" + e); } catch (Exception ignored) {}
@@ -110,22 +89,80 @@ public final class ActionEngine {
         }
     }
 
-    /**
-     * 只看按钮状态(给"跟进复查"用)：返回 "text|clickable" 形式的快照。
-     * clickable 任一节点为 true 即算可点。
-     */
-    public static String buttonState(JSONArray nodes) {
-        if (nodes == null) return "";
-        JSONObject rightBtn = find(nodes, "order_review_right_btn");
-        JSONObject titleRight = find(nodes, "title_right_btn");
-        String rightText = titleRight == null ? "" : titleRight.optString("t", "");
-        boolean rc = (rightBtn != null && rightBtn.optBoolean("k", false))
-                || (titleRight != null && titleRight.optBoolean("k", false));
-        JSONObject titleLeft = find(nodes, "title_left_btn");
-        String leftText = titleLeft == null ? "" : titleLeft.optString("t", "");
-        JSONObject leftBtn = find(nodes, "order_review_left_btn");
-        boolean lc = leftBtn != null && leftBtn.optBoolean("k", false);
-        return rightText + "|" + rc + "|" + leftText + "|" + lc;
+    private static boolean matchWhen(JSONArray when, JSONArray nodes, JSONObject card, StringBuilder why) {
+        if (when == null || when.length() == 0) return false;
+        JSONArray list = when.optJSONArray("all");
+        boolean anyMode = list == null;
+        if (anyMode) list = when.optJSONArray("any");
+        if (list == null) list = when;
+        boolean anyOk = false;
+        for (int i = 0; i < list.length(); i++) {
+            JSONObject c = list.optJSONObject(i);
+            if (c == null) continue;
+            StringBuilder cw = new StringBuilder();
+            boolean ok = matchCond(c, nodes, card, cw);
+            if (ok) anyOk = true;
+            why.append(cw);
+            if (!anyMode && !ok) return false;   // all 模式: 任一不满足即失败
+        }
+        return anyMode ? anyOk : true;
+    }
+
+    private static boolean matchCond(JSONObject c, JSONArray nodes, JSONObject card, StringBuilder why) {
+        String fld = c.optString("field", "");
+        if (!fld.isEmpty()) {
+            Double v = fieldValue(fld, card);
+            String op = ""; Double rhs = null;
+            if (c.has("lt")) { op = "<"; rhs = c.optDouble("lt"); }
+            else if (c.has("gt")) { op = ">"; rhs = c.optDouble("gt"); }
+            else if (c.has("lte")) { op = "<="; rhs = c.optDouble("lte"); }
+            else if (c.has("gte")) { op = ">="; rhs = c.optDouble("gte"); }
+            else if (c.has("eq")) { op = "="; rhs = c.optDouble("eq"); }
+            boolean ok = false;
+            if (v != null && rhs != null) {
+                if ("<".equals(op)) ok = v < rhs;
+                else if (">".equals(op)) ok = v > rhs;
+                else if ("<=".equals(op)) ok = v <= rhs;
+                else if (">=".equals(op)) ok = v >= rhs;
+                else ok = Math.abs(v - rhs) < 0.001;
+            }
+            why.append(fld).append("=").append(v).append(op).append(rhs).append(" ");
+            return ok;
+        }
+        String node = c.optString("node", "");
+        if (!node.isEmpty()) {
+            JSONObject n = find(nodes, node);
+            if (c.has("exists")) {
+                boolean ok = (n != null) == c.optBoolean("exists", true);
+                why.append(node).append("存在=").append(n != null).append(" ");
+                return ok;
+            }
+            if (c.has("clickable")) {
+                boolean ck = n != null && n.optBoolean("k", false);
+                boolean ok = ck == c.optBoolean("clickable", true);
+                why.append(node).append(".clickable=").append(ck).append(" ");
+                return ok;
+            }
+            if (c.has("text")) {
+                String t = n == null ? "" : n.optString("t", "");
+                boolean ok = t.equals(c.optString("text", ""));
+                why.append(node).append(".text='").append(t).append("' ");
+                return ok;
+            }
+        }
+        return false;
+    }
+
+    /** 字段取值; price 走 GKD 整数截断口径 */
+    private static Double fieldValue(String fld, JSONObject card) {
+        if (card == null) return null;
+        if ("price".equals(fld)) {
+            boolean[] ok = new boolean[1];
+            int v = gkdInt(card.optString("price", ""), ok);
+            return ok[0] ? (double) v : null;
+        }
+        if (!card.has(fld)) return null;
+        try { return card.optDouble(fld); } catch (Exception e) { return null; }
     }
 
     /** GKD 口径的取整: text.substring(0,text.indexOf('.')).toInt() —— 没有 '.' 时 GKD 表达式会失败 */
@@ -133,7 +170,7 @@ public final class ActionEngine {
         ok[0] = false;
         if (t == null) return 0;
         int i = t.indexOf('.');
-        if (i <= 0) return 0;          // GKD: indexOf('.')=-1 -> substring 抛异常 -> 规则不匹配
+        if (i <= 0) return 0;
         try {
             int v = Integer.parseInt(t.substring(0, i).trim());
             ok[0] = true;
@@ -143,61 +180,37 @@ public final class ActionEngine {
         }
     }
 
-    /** 结构链状态: ok / off=N / no_fragment / no_price */
-    static String chainState(JSONArray nodes) {
-        int frag = -1, price = -1;
-        for (int i = 0; i < nodes.length(); i++) {
-            JSONObject n = nodes.optJSONObject(i);
-            if (n == null) continue;
-            String v = n.optString("v", "");
-            if (frag < 0 && v.endsWith("order_review_fragment")) frag = i;
-            if (price < 0 && v.endsWith("price_info_card_title")) price = i;
-        }
-        if (frag < 0) return "no_fragment";
-        if (price < 0) return "no_price";
-        int off = preOrderIndex(nodes, price) - preOrderIndex(nodes, frag);
-        if (off >= 9 && off <= 15) return "ok";
-        return "off=" + off;
+    static boolean isPriceStable(JSONObject card) {
+        if (card == null) return true;
+        if (!card.has("price_stable")) return true;      // 没这个字段 -> 不拦
+        return card.optBoolean("price_stable", true);
     }
 
-    /** 深度优先先序索引(根=0) */
-    static int preOrderIndex(JSONArray nodes, int target) {
-        int n = nodes.length();
-        if (target < 0 || target >= n) return -1;
-        // 建子表
-        java.util.List<java.util.List<Integer>> kids = new java.util.ArrayList<>();
-        for (int i = 0; i < n; i++) kids.add(new java.util.ArrayList<Integer>());
-        java.util.List<Integer> roots = new java.util.ArrayList<>();
-        for (int i = 0; i < n; i++) {
-            JSONObject o = nodes.optJSONObject(i);
-            if (o == null) continue;
-            int p = o.optInt("pid", -1);
-            if (p >= 0 && p < i) kids.get(p).add(i);
-            else roots.add(i);
-        }
-        int[] idx = new int[n];
-        java.util.Arrays.fill(idx, -1);
-        int[] counter = new int[1];
-        java.util.Deque<int[]> st = new java.util.ArrayDeque<>();
-        for (int i = roots.size() - 1; i >= 0; i--) st.push(new int[]{roots.get(i), 0});
-        while (!st.isEmpty()) {
-            int[] cur = st.pop();
-            int node = cur[0];
-            idx[node] = counter[0]++;
-            if (node == target) return idx[node];
-            java.util.List<Integer> ch = kids.get(node);
-            for (int i = ch.size() - 1; i >= 0; i--) st.push(new int[]{ch.get(i), cur[1] + 1});
-        }
-        return idx[target];
-    }
-
-    /** 取第一个 vid 结尾匹配且有 text 的节点 */
     static JSONObject find(JSONArray nodes, String vidSuffix) {
+        if (nodes == null) return null;
         for (int i = 0; i < nodes.length(); i++) {
             JSONObject n = nodes.optJSONObject(i);
             if (n == null) continue;
             if (n.optString("v", "").endsWith(vidSuffix)) return n;
         }
         return null;
+    }
+
+    /** 目标节点(或其子孙里 text 节点)是否可点 */
+    static boolean targetClickable(JSONArray nodes, String vidSuffix) {
+        if (vidSuffix == null || vidSuffix.isEmpty()) return true;
+        JSONObject n = find(nodes, vidSuffix);
+        if (n == null) return false;
+        if (n.optBoolean("k", false)) return true;
+        // 容器不可点但里面的文字节点可点也算(滴滴按钮: 容器clickable, 文字不可点, 反之亦然)
+        for (int i = 0; i < nodes.length(); i++) {
+            JSONObject m = nodes.optJSONObject(i);
+            if (m == null) continue;
+            if (m.optBoolean("k", false)) {
+                String v = m.optString("v", "");
+                if (v.contains(vidSuffix) || vidSuffix.contains(v)) return true;
+            }
+        }
+        return false;
     }
 }

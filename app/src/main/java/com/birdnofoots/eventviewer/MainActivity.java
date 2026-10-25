@@ -14,6 +14,7 @@ import android.text.TextUtils;
 import android.util.TypedValue;
 import android.view.accessibility.AccessibilityManager;
 import android.accessibilityservice.AccessibilityServiceInfo;
+import android.app.AlertDialog;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.LinearLayout;
@@ -36,7 +37,7 @@ import java.util.Locale;
 /** 状态页: 无障碍是否开启 / 本机 API 地址与 token / 最后事件 / 测试 */
 public class MainActivity extends android.app.Activity {
     private static final String PREFS = "didiwatch";
-    private TextView tvStatus, tvLast, tvApi;
+    private TextView tvStatus, tvLast, tvApi, tvAct;
     private CheckBox cbTree;
     private final Handler ui = new Handler(Looper.getMainLooper());
     private ContentObserver a11yObs;
@@ -77,6 +78,21 @@ public class MainActivity extends android.app.Activity {
         cbTree.setChecked(cfg.includeTree());
         cbTree.setOnCheckedChangeListener((b, on) -> cfg.setIncludeTree(on));
         root.addView(cbTree);
+
+        tvAct = new TextView(this);
+        tvAct.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        tvAct.setPadding(0, p, 0, p);
+        root.addView(tvAct);
+
+        root.addView(btn("查看动作规则(线路B)", v -> {
+            WatchConfig c = WatchConfig.get(this);
+            String txt = "线路A(内置默认, 滴滴专用):\n"
+                    + WatchConfig.DEFAULT_ACTION_RULES + "\n\n"
+                    + "线路B(当前生效, 可用 POST /v1/action_rules 覆盖):\n"
+                    + c.actionRules();
+            new AlertDialog.Builder(this).setTitle("动作规则(只算不点)")
+                    .setMessage(txt).setPositiveButton("好", null).show();
+        }));
 
         root.addView(btn("选择监听的应用", v -> {
             startActivity(new Intent(this, AppPickerActivity.class));
@@ -194,6 +210,25 @@ public class MainActivity extends android.app.Activity {
             cbTree.setChecked(cfg.includeTree());
             cbTree.setOnCheckedChangeListener((b, v) -> cfg.setIncludeTree(v));
         }
+
+        // 最近一次动作决策(★只算不点, 本版本不执行任何点击)
+        try {
+            JSONObject last = WatchBus.latest();
+            JSONObject act = last.optJSONObject("act");
+            if (act == null) act = last.optJSONObject("act_b");
+            if (act != null) {
+                JSONObject cb = last.optJSONObject("act_cmp");
+                String ab = cb == null ? "" : ("  A=" + cb.optString("a") + " B=" + cb.optString("b")
+                        + (cb.optBoolean("match") ? " ✓一致" : " ✗不一致"));
+                tvAct.setText("动作模式: 影子(只计算不执行)\n"
+                        + "最近决策: " + act.optString("dec")
+                        + "  目标: " + act.optString("target_vid")
+                        + "  价稳定: " + last.optBoolean("price_stable", true) + ab + "\n"
+                        + "理由: " + act.optString("reason"));
+            } else {
+                tvAct.setText("动作模式: 影子(只计算不执行) —— 本版本不执行任何点击");
+            }
+        } catch (Exception ignored) {}
 
         long at = prefs().getLong("last_at", 0);
         String cls = prefs().getString("last_cls", "");

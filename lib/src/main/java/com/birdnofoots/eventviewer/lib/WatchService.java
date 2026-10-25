@@ -144,6 +144,7 @@ public class WatchService extends AccessibilityService {
         lastCardCheck = now;
         new Thread(new Runnable() {
             @Override public void run() {
+                String lastPrice = null;      // ★价格稳定判定(本线程内连续两次读到同价才算稳定)
                 for (int i = 0; i < cfg.cardRetries(); i++) {
                     try { Thread.sleep(cfg.cardDelayMs()); } catch (Exception e) { return; }
                     JSONArray nodes = dumpTree();
@@ -171,6 +172,18 @@ public class WatchService extends AccessibilityService {
                                 && safeEq(card.optString("price"), rf == null ? null : rf.optString("price")));
                         card.put("cmp", _cmp);
                     } catch (Exception ignored) {}
+                    // ★价格稳定判定: 滴滴预约单价格会滚动(实测 64.46 -> 50.05),
+                    //   读得太早会拿到中间价 -> 连续两次读到同价才认为价格定了
+                    String priceNow = card.optString("price", "");
+                    boolean stable = false;
+                    if (priceNow != null && !priceNow.isEmpty()) {
+                        if (priceNow.equals(lastPrice)) stable = true;
+                        lastPrice = priceNow;
+                    }
+                    try { card.put("price_stable", stable); } catch (Exception ignored) {}
+                    boolean lastTry = (i == cfg.cardRetries() - 1);
+                    if (!stable && !lastTry) continue;   // 价格还在滚 -> 继续等(不急着上报)
+
                     long t = SystemClock.elapsedRealtime();
                     String key = card.optString("price", "?") + "|" + card.optString("kind", "");
                     if (key.equals(lastCardKey) && t - lastCardReport < 5000) return;  // 同卡去重
@@ -186,10 +199,21 @@ public class WatchService extends AccessibilityService {
                         card.put("event_cls", lastContentCls);                 // 触发这次取数的内容事件来源
                         card.put("etype", AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED);
                     } catch (Exception ignored) {}
-                    // ★影子动作决策: 复刻 GKD 两条规则, 只算不点(阶段2)
+                    // ★影子动作决策: 两条线路并行评估, **都只算不点**
+                    //   act    = 线路A(内置默认动作规则, 滴滴专用)
+                    //   act_b  = 线路B(调用者 POST /v1/action_rules 配的规则)
+                    //   act_cmp= 两条线路的决策对比
                     try {
-                        card.put("act", ActionEngine.decide(nodes, card));
-                        card.put("shadow", cfg.shadowAction());
+                        JSONObject actA = ActionEngine.decide(nodes, card, defaultActionRules());
+                        JSONObject actB = ActionEngine.decide(nodes, card, cfg.actionRules());
+                        JSONObject ac = new JSONObject();
+                        ac.put("a", actA.optString("dec"));
+                        ac.put("b", actB.optString("dec"));
+                        ac.put("match", actA.optString("dec").equals(actB.optString("dec")));
+                        card.put("act", actA);
+                        card.put("act_b", actB);
+                        card.put("act_cmp", ac);
+                        card.put("shadow", true);   // ★恒为真: 本版本不执行任何点击
                     } catch (Exception ignored) {}
                     WatchBus.publish(WatchService.this, card);
                     Log.i(TAG, "卡片识别 价=" + card.optString("price")
@@ -216,6 +240,7 @@ public class WatchService extends AccessibilityService {
         new Thread(new Runnable() {
             @Override public void run() {
                 String lastState = "";
+                String lastP = null;
                 try {
                     for (int i = 0; i < 60; i++) {          // 最多 60 次(事件可提前唤醒)
                         // 等 400ms, 但事件来了立刻醒
@@ -236,14 +261,26 @@ public class WatchService extends AccessibilityService {
                                 hasCard = true; break;
                             }
                         }
-                        if (!hasCard) { publishAction(card, p0, t0, "card_gone", "", false); break; }
+                        if (!hasCard) {
+                            publishAction(card, p0, t0, "card_gone",
+                                    new JSONObject(), new JSONObject(), false);
+                            break;
+                        }
                         String state = ActionEngine.buttonState(nodes);
+                        JSONObject cur = findCard(nodes);
+                        String cp = cur == null ? "" : cur.optString("price", "");
+                        boolean pstable = false;
+                        if (cp != null && !cp.isEmpty()) {
+                            if (cp.equals(lastP)) pstable = true;
+                            lastP = cp;
+                        }
+                        try { if (cur != null) cur.put("price_stable", pstable); } catch (Exception ignored) {}
                         if (!state.equals(lastState)) {
                             lastState = state;
-                            JSONObject cur = findCard(nodes);
-                            JSONObject dec = ActionEngine.decide(nodes, cur == null ? card : cur);
-                            publishAction(card, p0, t0, state, dec.optString("dec"),
-                                    dec.optBoolean("right_clickable", false));
+                            JSONObject decA = ActionEngine.decide(nodes, cur == null ? card : cur, defaultActionRules());
+                            JSONObject decB = ActionEngine.decide(nodes, cur == null ? card : cur, cfg.actionRules());
+                            publishAction(card, p0, t0, state, decA, decB,
+                                    ActionEngine.rightClickable(nodes));
                         }
                     }
                 } finally {
@@ -253,8 +290,9 @@ public class WatchService extends AccessibilityService {
         }).start();
     }
 
-    /** 上报一次按钮状态变化 */
-    private void publishAction(JSONObject card, String price, long t0, String state, String dec, boolean clickable) {
+    /** 上报一次按钮状态变化(带双线路决策) */
+    private void publishAction(JSONObject card, String price, long t0, String state,
+                               JSONObject decA, JSONObject decB, boolean rightClickable) {
         JSONObject p = new JSONObject();
         try {
             p.put("kind", "card_action");
@@ -263,12 +301,22 @@ public class WatchService extends AccessibilityService {
             p.put("pkg", card.optString("pkg", ""));
             p.put("price", price);
             p.put("state", state);
-            p.put("dec", dec);
-            p.put("clickable", clickable);
+            p.put("dec", decA.optString("dec"));
+            p.put("dec_b", decB.optString("dec"));
+            p.put("match", decA.optString("dec").equals(decB.optString("dec")));
+            p.put("target_vid", decA.optString("target_vid"));
+            p.put("reason", decA.optString("reason"));
+            p.put("price_stable", decA.optBoolean("price_stable", true));
+            p.put("right_clickable", rightClickable);
             p.put("since_card_ms", System.currentTimeMillis() - t0);
             p.put("shadow", true);
         } catch (Exception ignored) {}
         WatchBus.publish(this, p);
+    }
+
+    /** 内置默认动作规则(线路A) */
+    private static org.json.JSONArray defaultActionRules() {
+        try { return new org.json.JSONArray(WatchConfig.DEFAULT_ACTION_RULES); } catch (Exception e) { return null; }
     }
 
     /**

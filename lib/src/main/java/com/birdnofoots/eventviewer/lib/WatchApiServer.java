@@ -167,6 +167,21 @@ public class WatchApiServer {
                 send(o, 200, "{\"ok\":true}");
                 return;
             }
+            case "GET /v1/action_rules": {
+                org.json.JSONArray ar = WatchConfig.get(c).actionRules();
+                send(o, 200, ar == null ? "[]" : ar.toString());
+                return;
+            }
+            case "POST /v1/action_rules": {
+                try {
+                    new org.json.JSONArray(body);      // 校验是合法 JSON 数组
+                    WatchConfig.get(c).setActionRules(body);
+                    send(o, 200, "{\"ok\":true}");
+                } catch (Exception e) {
+                    send(o, 400, "{\"error\":\"动作规则必须是合法 JSON 数组: " + e + "\"}");
+                }
+                return;
+            }
             case "GET /v1/rules": {
                 send(o, 200, WatchConfig.get(c).rules().toString());
                 return;
