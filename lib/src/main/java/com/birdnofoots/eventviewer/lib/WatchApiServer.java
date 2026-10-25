@@ -127,6 +127,12 @@ public class WatchApiServer {
                 JSONObject r = new JSONObject();
                 r.put("ok", true);
                 r.put("service_alive", WatchService.alive);
+                try {
+                    android.content.pm.PackageInfo pi = c.getPackageManager()
+                            .getPackageInfo(c.getPackageName(), 0);
+                    r.put("version", pi.versionName);
+                    r.put("versionCode", pi.versionCode);
+                } catch (Exception ignored) {}
                 r.put("latest_ts", WatchBus.latest().optLong("ts", 0));
                 r.put("pkg", cfg.pkg());
                 r.put("act", cfg.act());
