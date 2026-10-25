@@ -32,6 +32,9 @@ public class WatchService extends AccessibilityService {
 
     private long lastHit = 0L;
     private String lastCls = "";
+    private volatile long lastContentAt = 0L;      // 上一次内容变化事件的到达时刻(真实 elapsedRealtime)
+    private volatile String lastContentCls = "";   // 触发的内容事件来源类名
+    private volatile long lastContentLog = 0L;     // 内容事件日志限流
     private volatile long lastCardCheck = 0L;      // 卡片检查冷却(防事件洪水)
     private volatile long lastCardReport = 0L;     // 同一张卡去重
     private volatile String lastCardKey = "";
@@ -84,6 +87,16 @@ public class WatchService extends AccessibilityService {
         if (!cfg.pkgs().contains(pkg)) return;   // 支持同时监听多个应用
         String cls = event.getClassName() == null ? "" : event.getClassName().toString();
 
+        // 内容变化事件是"卡片识别"的触发器, 记录到达时刻 —— 用于分清"事件晚到"还是"取数慢"
+        if (type == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
+            lastContentAt = SystemClock.elapsedRealtime();
+            lastContentCls = cls;
+            if (lastContentAt - lastContentLog > 500) {        // 日志限流, 防刷屏
+                lastContentLog = lastContentAt;
+                Log.i(TAG, "内容变化: " + cls);
+            }
+        }
+
         // 卡片识别: 事件到后延迟取树(卡片晚于事件渲染), 有冷却防洪
         if (cfg.cardDetect() && type == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
             maybeCheckCard(cfg, pkg);
@@ -135,10 +148,15 @@ public class WatchService extends AccessibilityService {
                         card.put("origin", getPackageName());
                         card.put("pkg", pkg);
                         card.put("detect_ms", (i + 1) * cfg.cardDelayMs());   // 第几次尝试取到
+                        card.put("since_event_ms", SystemClock.elapsedRealtime() - lastContentAt);  // 事件到取到隔多久
+                        card.put("event_cls", lastContentCls);                 // 触发这次取数的内容事件来源
                         card.put("etype", AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED);
                     } catch (Exception ignored) {}
                     WatchBus.publish(WatchService.this, card);
-                    Log.i(TAG, "卡片识别: " + card.toString());
+                    Log.i(TAG, "卡片识别 价=" + card.optString("price")
+                            + " 第" + (i + 1) + "次(" + ((i + 1) * cfg.cardDelayMs()) + "ms) 取到"
+                            + " 距事件" + (SystemClock.elapsedRealtime() - lastContentAt) + "ms"
+                            + " 来源=" + lastContentCls);
                     return;
                 }
             }
