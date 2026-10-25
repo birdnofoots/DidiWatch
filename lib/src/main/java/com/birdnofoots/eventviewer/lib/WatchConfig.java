@@ -55,6 +55,16 @@ public class WatchConfig {
     public String act() { return sp.getString("act", DEFAULT_ACT); }
     public void setAct(String v) { sp.edit().putString("act", v == null ? "" : v).apply(); }
 
+    /** 影子模式: 识别订单卡(只上报不点击) */
+    public boolean cardDetect() { return sp.getBoolean("card_detect", true); }
+    public void setCardDetect(boolean b) { sp.edit().putBoolean("card_detect", b).apply(); }
+    /** 事件到后等多少毫秒再取树(卡片晚于事件渲染) */
+    public int cardDelayMs() { return sp.getInt("card_delay_ms", 100); }
+    public void setCardDelayMs(int v) { sp.edit().putInt("card_delay_ms", v).apply(); }
+    /** 没看到卡片最多试几次(每次间隔 cardDelayMs) */
+    public int cardRetries() { return sp.getInt("card_retries", 3); }
+    public void setCardRetries(int v) { sp.edit().putInt("card_retries", v).apply(); }
+
     public boolean includeTree() { return sp.getBoolean("include_tree", false); }
     public void setIncludeTree(boolean b) { sp.edit().putBoolean("include_tree", b).apply(); }
 
