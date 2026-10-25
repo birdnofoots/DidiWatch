@@ -141,26 +141,26 @@ public class WatchService extends AccessibilityService {
                     JSONObject card = findCard(nodes);                       // 写死
                     JSONObject ruleHit = RuleEngine.evaluate(nodes, pkg, cls, cfg.rules());   // 规则
                     if (card == null && ruleHit == null) continue;
-                    if (card == null) {                                       // 只有规则命中 -> 用规则字段
-                        card = new JSONObject();
-                        JSONObject f = ruleHit.optJSONObject("fields");
-                        if (f != null) {
-                            for (java.util.Iterator<String> it = f.keys(); it.hasNext(); ) {
-                                String k = it.next(); card.put(k, f.opt(k));
-                            }
-                        }
-                        card.put("kind_name", ruleHit.optString("kind_name", "未知"));
-                    }
-                    JSONObject _cmp = new JSONObject();   // 对比结果
+                    JSONObject _cmp = new JSONObject();   // 对比结果(写死 vs 规则)
                     try {
+                        if (card == null) {                       // 只有规则命中 -> 用规则字段
+                            card = new JSONObject();
+                            JSONObject f0 = ruleHit.optJSONObject("fields");
+                            if (f0 != null) {
+                                for (java.util.Iterator<String> it = f0.keys(); it.hasNext(); ) {
+                                    String k = it.next(); card.put(k, f0.opt(k));
+                                }
+                            }
+                            card.put("kind_name", ruleHit.optString("kind_name", "未知"));
+                        }
+                        JSONObject rf = (ruleHit == null) ? null : ruleHit.optJSONObject("fields");
                         _cmp.put("rule_name", ruleHit == null ? null : ruleHit.optString("rule"));
                         _cmp.put("rule_kind", ruleHit == null ? null : ruleHit.optString("kind_name"));
-                        _cmp.put("rule_fields", ruleHit == null ? null : ruleHit.optJSONObject("fields"));
-                        _cmp.put("match", ruleHit != null && card != null
-                                && safeEq(card.optString("price"), ruleHit.optJSONObject("fields") == null ? null
-                                        : ruleHit.optJSONObject("fields").optString("price")));
+                        _cmp.put("rule_fields", rf);
+                        _cmp.put("match", ruleHit != null
+                                && safeEq(card.optString("price"), rf == null ? null : rf.optString("price")));
+                        card.put("cmp", _cmp);
                     } catch (Exception ignored) {}
-                    card.put("cmp", _cmp);
                     long t = SystemClock.elapsedRealtime();
                     String key = card.optString("price", "?") + "|" + card.optString("kind", "");
                     if (key.equals(lastCardKey) && t - lastCardReport < 5000) return;  // 同卡去重
