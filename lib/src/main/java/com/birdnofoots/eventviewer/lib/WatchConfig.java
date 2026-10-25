@@ -3,6 +3,8 @@ package com.birdnofoots.eventviewer.lib;
 import android.content.Context;
 import android.content.SharedPreferences;
 
+import org.json.JSONArray;
+
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
