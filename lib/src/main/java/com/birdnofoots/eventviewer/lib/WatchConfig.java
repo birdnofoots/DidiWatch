@@ -74,6 +74,28 @@ public class WatchConfig {
     public int apiPort() { return sp.getInt("api_port", API_PORT); }
     public void setApiPort(int p) { sp.edit().putInt("api_port", p).apply(); }
 
+    /** 默认规则 = 滴滴订单卡(和写死逻辑等价, 用于 A/B 对比) */
+    public static final String DEFAULT_RULES =
+        "[{" +
+        "\"name\":\"didi_card\"," +
+        "\"pkg\":\"com.sdu.didi.gsui\"," +
+        "\"require_all\":[\"order_review_fragment\"]," +
+        "\"require_any\":[\"price_info_card_title\",\"order_review_head_tag_view\"]," +
+        "\"fields\":{\"price\":\"price_info_card_title\",\"tag\":\"order_review_head_tag_view\"," +
+        "\"time\":\"journey_value[0]\",\"dist_me\":\"journey_value[1]\"," +
+        "\"dist_all\":\"journey_value[2]\",\"addr_from\":\"address_name[0]\",\"addr_to\":\"address_name[1]\"}," +
+        "\"kinds\":[{\"name\":\"预约单\",\"require\":[\"order_review_left_btn\"]}," +
+        "{\"name\":\"实时单\",\"require_any\":[\"order_review_head_tag_view\"]}]" +
+        "}]";
+
+    public JSONArray rules() {
+        String j = sp.getString("rules", DEFAULT_RULES);
+        try { return new org.json.JSONArray(j); } catch (Exception e) {
+            try { return new org.json.JSONArray(DEFAULT_RULES); } catch (Exception e2) { return null; }
+        }
+    }
+    public void setRules(String json) { sp.edit().putString("rules", json).apply(); }
+
     public String token() { return sp.getString("token", ""); }
     public void setToken(String v) { sp.edit().putString("token", v).apply(); }
 }

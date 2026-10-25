@@ -157,6 +157,20 @@ public class WatchApiServer {
                 send(o, 200, "{\"ok\":true}");
                 return;
             }
+            case "GET /v1/rules": {
+                send(o, 200, WatchConfig.get(c).rules().toString());
+                return;
+            }
+            case "POST /v1/rules": {
+                try {
+                    new org.json.JSONArray(body);       // 先校验是不是合法 JSON 数组
+                    WatchConfig.get(c).setRules(body);
+                    send(o, 200, "{\"ok\":true}");
+                } catch (Exception e) {
+                    send(o, 400, "{\"error\":\"规则必须是合法 JSON 数组: " + e + "\"}");
+                }
+                return;
+            }
             case "GET /v1/events/latest": {
                 send(o, 200, WatchBus.latest().toString());
                 return;

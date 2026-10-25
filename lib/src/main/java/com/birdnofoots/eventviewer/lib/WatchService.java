@@ -101,7 +101,7 @@ public class WatchService extends AccessibilityService {
 
         // 卡片识别: 事件到后延迟取树(卡片晚于事件渲染), 有冷却防洪
         if (cfg.cardDetect() && type == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
-            maybeCheckCard(cfg, pkg);
+            maybeCheckCard(cfg, pkg, cls);
         }
 
         // 窗口状态变化照常上报
@@ -128,7 +128,7 @@ public class WatchService extends AccessibilityService {
     }
 
     /** 有卡片就上报 kind=order_card; 同一张卡(同价格)去重 */
-    private void maybeCheckCard(final WatchConfig cfg, final String pkg) {
+    private void maybeCheckCard(final WatchConfig cfg, final String pkg, final String cls) {
         long now = SystemClock.elapsedRealtime();
         if (now - lastCardCheck < 150) return;      // 事件洪水防护
         lastCardCheck = now;
@@ -137,8 +137,30 @@ public class WatchService extends AccessibilityService {
                 for (int i = 0; i < cfg.cardRetries(); i++) {
                     try { Thread.sleep(cfg.cardDelayMs()); } catch (Exception e) { return; }
                     JSONArray nodes = dumpTree();
-                    JSONObject card = findCard(nodes);
-                    if (card == null) continue;
+                    // ★两套逻辑并跑: 写死的 findCard(legacy) + 可配置 RuleEngine(rule), 用数据验证等价性
+                    JSONObject card = findCard(nodes);                       // 写死
+                    JSONObject ruleHit = RuleEngine.evaluate(nodes, pkg, cls, cfg.rules());   // 规则
+                    if (card == null && ruleHit == null) continue;
+                    if (card == null) {                                       // 只有规则命中 -> 用规则字段
+                        card = new JSONObject();
+                        JSONObject f = ruleHit.optJSONObject("fields");
+                        if (f != null) {
+                            for (java.util.Iterator<String> it = f.keys(); it.hasNext(); ) {
+                                String k = it.next(); card.put(k, f.opt(k));
+                            }
+                        }
+                        card.put("kind_name", ruleHit.optString("kind_name", "未知"));
+                    }
+                    JSONObject _cmp = new JSONObject();   // 对比结果
+                    try {
+                        _cmp.put("rule_name", ruleHit == null ? null : ruleHit.optString("rule"));
+                        _cmp.put("rule_kind", ruleHit == null ? null : ruleHit.optString("kind_name"));
+                        _cmp.put("rule_fields", ruleHit == null ? null : ruleHit.optJSONObject("fields"));
+                        _cmp.put("match", ruleHit != null && card != null
+                                && safeEq(card.optString("price"), ruleHit.optJSONObject("fields") == null ? null
+                                        : ruleHit.optJSONObject("fields").optString("price")));
+                    } catch (Exception ignored) {}
+                    card.put("cmp", _cmp);
                     long t = SystemClock.elapsedRealtime();
                     String key = card.optString("price", "?") + "|" + card.optString("kind", "");
                     if (key.equals(lastCardKey) && t - lastCardReport < 5000) return;  // 同卡去重
@@ -268,6 +290,13 @@ public class WatchService extends AccessibilityService {
             while (j >= 0 && keys.get(j)[0] > k[0]) { keys.set(j+1, keys.get(j)); vals.set(j+1, vals.get(j)); j--; }
             keys.set(j+1, k); vals.set(j+1, v);
         }
+    }
+
+    private static boolean safeEq(String a, String b) {
+        if (a == null && b == null) return true;
+        if (a == null || b == null) return false;
+        try { return Math.abs(Double.parseDouble(a) - Double.parseDouble(b)) < 0.001; }
+        catch (Exception e) { return a.equals(b); }
     }
 
     private JSONArray dumpTree() {
