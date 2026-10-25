@@ -37,6 +37,7 @@ import java.util.Locale;
 public class MainActivity extends android.app.Activity {
     private static final String PREFS = "didiwatch";
     private TextView tvStatus, tvLast, tvApi;
+    private CheckBox cbTree;
     private final Handler ui = new Handler(Looper.getMainLooper());
     private ContentObserver a11yObs;
 
@@ -71,11 +72,11 @@ public class MainActivity extends android.app.Activity {
         tvLast.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
         root.addView(tvLast);
 
-        CheckBox cb = new CheckBox(this);
-        cb.setText("附带节点树(默认关)");
-        cb.setChecked(cfg.includeTree());
-        cb.setOnCheckedChangeListener((b, on) -> cfg.setIncludeTree(on));
-        root.addView(cb);
+        cbTree = new CheckBox(this);
+        cbTree.setText("附带节点树(默认关)");
+        cbTree.setChecked(cfg.includeTree());
+        cbTree.setOnCheckedChangeListener((b, on) -> cfg.setIncludeTree(on));
+        root.addView(cbTree);
 
         root.addView(btn("选择监听的应用", v -> {
             startActivity(new Intent(this, AppPickerActivity.class));
@@ -187,6 +188,12 @@ public class MainActivity extends android.app.Activity {
 
         WatchConfig cfg = WatchConfig.get(this);
         tvApi.setText(apiText(cfg));
+        // 同步开关: 通过 API(POST /v1/config) 改过配置后, 回到前台要能反映真实状态
+        if (cbTree != null && cbTree.isChecked() != cfg.includeTree()) {
+            cbTree.setOnCheckedChangeListener(null);
+            cbTree.setChecked(cfg.includeTree());
+            cbTree.setOnCheckedChangeListener((b, v) -> cfg.setIncludeTree(v));
+        }
 
         long at = prefs().getLong("last_at", 0);
         String cls = prefs().getString("last_cls", "");
