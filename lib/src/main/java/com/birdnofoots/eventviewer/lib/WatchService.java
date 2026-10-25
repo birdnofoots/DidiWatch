@@ -220,7 +220,7 @@ public class WatchService extends AccessibilityService {
                             + " 第" + (i + 1) + "次(" + ((i + 1) * cfg.cardDelayMs()) + "ms) 取到"
                             + " 距事件" + (SystemClock.elapsedRealtime() - lastContentAt) + "ms"
                             + " 来源=" + lastContentCls);
-                    if (cfg.actionTrack()) startTrack(card);
+                    if (cfg.actionTrack()) startTrack(cfg, card);
                     return;
                 }
             }
@@ -233,7 +233,7 @@ public class WatchService extends AccessibilityService {
      * 目的：搞清楚"抢单按钮到底是哪个节点、在什么时刻变成可点"，
      *       这是把点击从 GKD 切到 APK 的必要前置数据。
      */
-    private void startTrack(final JSONObject card) {
+    private void startTrack(final WatchConfig cfg, final JSONObject card) {
         if (!tracking.compareAndSet(false, true)) return;   // 已有卡在跟踪
         final String p0 = card.optString("price", "");
         final long t0 = System.currentTimeMillis();

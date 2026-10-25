@@ -89,12 +89,12 @@ public final class ActionEngine {
         }
     }
 
-    private static boolean matchWhen(JSONArray when, JSONArray nodes, JSONObject card, StringBuilder why) {
+    private static boolean matchWhen(JSONObject when, JSONArray nodes, JSONObject card, StringBuilder why) {
         if (when == null || when.length() == 0) return false;
         JSONArray list = when.optJSONArray("all");
-        boolean anyMode = list == null;
-        if (anyMode) list = when.optJSONArray("any");
-        if (list == null) list = when;
+        boolean anyMode = false;
+        if (list == null) { list = when.optJSONArray("any"); anyMode = true; }
+        if (list == null) return false;
         boolean anyOk = false;
         for (int i = 0; i < list.length(); i++) {
             JSONObject c = list.optJSONObject(i);
@@ -212,5 +212,33 @@ public final class ActionEngine {
             }
         }
         return false;
+    }
+
+    /**
+     * 按钮状态快照(给"跟进复查"用), 紧凑字符串便于比较是否变化:
+     *   右文字|右容器可点|右文字可点|左文字|左容器可点|左文字可点
+     * 滴滴按钮结构: order_review_right_btn(容器) / title_right_btn(文字), clickable 归属两者之一
+     */
+    static String buttonState(JSONArray nodes) {
+        if (nodes == null) return "";
+        JSONObject rb = find(nodes, "order_review_right_btn");
+        JSONObject tr = find(nodes, "title_right_btn");
+        JSONObject lb = find(nodes, "order_review_left_btn");
+        JSONObject tl = find(nodes, "title_left_btn");
+        String rt = tr == null ? "" : tr.optString("t", "");
+        String lt = tl == null ? "" : tl.optString("t", "");
+        boolean rc = rb != null && rb.optBoolean("k", false);
+        boolean tc = tr != null && tr.optBoolean("k", false);
+        boolean lc = lb != null && lb.optBoolean("k", false);
+        boolean ltc = tl != null && tl.optBoolean("k", false);
+        return rt + "|" + rc + "|" + tc + "|" + lt + "|" + lc + "|" + ltc;
+    }
+
+    /** 右按钮是否任一节点可点 */
+    static boolean rightClickable(JSONArray nodes) {
+        JSONObject rb = find(nodes, "order_review_right_btn");
+        JSONObject tr = find(nodes, "title_right_btn");
+        return (rb != null && rb.optBoolean("k", false))
+                || (tr != null && tr.optBoolean("k", false));
     }
 }
