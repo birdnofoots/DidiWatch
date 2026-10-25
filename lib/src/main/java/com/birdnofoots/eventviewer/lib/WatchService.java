@@ -137,7 +137,7 @@ public class WatchService extends AccessibilityService {
                         card.put("detect_ms", (i + 1) * cfg.cardDelayMs());   // 第几次尝试取到
                         card.put("etype", AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED);
                     } catch (Exception ignored) {}
-                    WatchBus.publish(c, card);
+                    WatchBus.publish(WatchService.this, card);
                     Log.i(TAG, "卡片识别: " + card.toString());
                     return;
                 }
