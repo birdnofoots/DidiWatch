@@ -11,6 +11,8 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Deque;
 
 /**
@@ -163,33 +165,109 @@ public class WatchService extends AccessibilityService {
         }).start();
     }
 
-    /** 在节点树里找订单卡特征, 找到返回卡片信息, 没有返回 null */
+    /**
+     * 在节点树里找订单卡。
+     * 判定要严格: 必须有卡片容器 order_review_fragment, 且有 价格 或 抬头 之一
+     * —— 只看价格或只看容器都容易误判(比如别的界面也有价格文本)。
+     */
     private JSONObject findCard(JSONArray nodes) {
         if (nodes == null || nodes.length() == 0) return null;
-        boolean hasPrice = false, hasFragment = false, hasLeftBtn = false, hasTag = false;
-        String price = null, kind = null;
+
+        boolean hasFragment = false, hasPrice = false, hasTag = false, hasLeftBtn = false;
+        String price = null, tag = null;
+        List<Double> journeyTop = new ArrayList<>();   // 距离行按 y 排序用
+        List<String> journeyText = new ArrayList<>();
+        List<double[]> addrList = new ArrayList<>();
+        List<String> addrText = new ArrayList<>();
+
         for (int i = 0; i < nodes.length(); i++) {
             JSONObject n = nodes.optJSONObject(i);
             if (n == null) continue;
             String v = n.optString("v", "");
             String t = n.optString("t", "");
-            if (v.endsWith("price_info_card_title")) { hasPrice = true; price = t; }
-            else if (v.endsWith("order_review_fragment")) hasFragment = true;
+            JSONArray b = n.optJSONArray("b");
+            double top = (b != null && b.length() > 1) ? b.optDouble(1, 0) : 0;
+            double left = (b != null && b.length() > 0) ? b.optDouble(0, 0) : 0;
+
+            if (v.endsWith("order_review_fragment")) hasFragment = true;
+            else if (v.endsWith("price_info_card_title")) { hasPrice = true; price = t; }
+            else if (v.endsWith("order_review_head_tag_view")) { hasTag = true; tag = t; }
             else if (v.endsWith("order_review_left_btn")) hasLeftBtn = true;
-            else if (v.endsWith("order_review_head_tag_view")) hasTag = true;
+            else if (v.endsWith("journey_value")) { journeyTop.add(top); journeyText.add(t); }
+            else if (v.endsWith("address_name")) {
+                addrList.add(new double[]{top, left});
+                addrText.add(t);
+            }
         }
-        if (!hasPrice && !hasFragment) return null;
+
+        // 严格判定: 卡片容器 + (价格 或 抬头)
+        if (!hasFragment || !(hasPrice || hasTag)) return null;
+
+        // 距离行按 y 排序, 预约单 3 行(出发时间/距您/全程), 实时单 2 行(距您/全程)
+        sortTogether(journeyTop, journeyText);
+        double distMe = Double.NaN, distAll = Double.NaN;
+        String timeText = null;
+        if (journeyText.size() >= 3) {
+            timeText = journeyText.get(0);
+            distMe = parseKm(journeyText.get(1));
+            distAll = parseKm(journeyText.get(2));
+        } else if (journeyText.size() == 2) {
+            distMe = parseKm(journeyText.get(0));
+            distAll = parseKm(journeyText.get(1));
+        } else if (journeyText.size() == 1) {
+            distAll = parseKm(journeyText.get(0));
+        }
+
+        // 起终点按 y 排序, 第一个是起点
+        sortTogetherDouble(addrList, addrText);
+        String from = addrText.size() > 0 ? addrText.get(0) : "";
+        String to = addrText.size() > 1 ? addrText.get(1) : "";
+
         JSONObject o = new JSONObject();
         try {
             o.put("price", price);
-            // 预约单有"不抢"按钮; 实时单没有
-            kind = hasLeftBtn ? "预约单" : (hasTag ? "实时单" : "未知");
-            o.put("kind_name", kind);
+            o.put("tag", tag);
+            o.put("kind_name", hasLeftBtn ? "预约单" : (hasTag ? "实时单" : "未知"));
+            o.put("time_text", timeText);
+            if (!Double.isNaN(distMe)) o.put("dist_me", distMe);
+            if (!Double.isNaN(distAll)) o.put("dist_all", distAll);
+            o.put("addr_from", from);
+            o.put("addr_to", to);
             o.put("has_price", hasPrice);
+            o.put("has_tag", hasTag);
             o.put("has_fragment", hasFragment);
             o.put("has_left_btn", hasLeftBtn);
+            o.put("node_count", nodes.length());
         } catch (Exception ignored) {}
         return o;
+    }
+
+    /** 统一折算成 km: '907m' -> 0.907, '27.5km' -> 27.5(2026-10-25 单位盲区教训) */
+    private static double parseKm(String t) {
+        if (t == null) return Double.NaN;
+        String s = t.trim().replace(",", ".");
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("(\\d+(?:\\.\\d+)?)").matcher(s);
+        if (!m.find()) return Double.NaN;
+        double v;
+        try { v = Double.parseDouble(m.group(1)); } catch (Exception e) { return Double.NaN; }
+        if (s.endsWith("m") && !s.endsWith("km")) v = v / 1000.0;
+        return v;
+    }
+
+    private static void sortTogether(List<Double> keys, List<String> vals) {
+        for (int i = 1; i < keys.size(); i++) {
+            double k = keys.get(i); String v = vals.get(i); int j = i - 1;
+            while (j >= 0 && keys.get(j) > k) { keys.set(j+1, keys.get(j)); vals.set(j+1, vals.get(j)); j--; }
+            keys.set(j+1, k); vals.set(j+1, v);
+        }
+    }
+
+    private static void sortTogetherDouble(List<double[]> keys, List<String> vals) {
+        for (int i = 1; i < keys.size(); i++) {
+            double[] k = keys.get(i); String v = vals.get(i); int j = i - 1;
+            while (j >= 0 && keys.get(j)[0] > k[0]) { keys.set(j+1, keys.get(j)); vals.set(j+1, vals.get(j)); j--; }
+            keys.set(j+1, k); vals.set(j+1, v);
+        }
     }
 
     private JSONArray dumpTree() {
