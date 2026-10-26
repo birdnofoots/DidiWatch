@@ -87,7 +87,7 @@ public class MainActivity extends android.app.Activity {
         root.addView(btn("查看动作规则(线路B)", v -> {
             WatchConfig c = WatchConfig.get(this);
             String txt = "线路A(内置默认, 滴滴专用):\n"
-                    + WatchConfig.DEFAULT_ACTION_RULES + "\n\n"
+                    + WatchConfig.defaultActionRules().toString() + "\n\n"
                     + "线路B(当前生效, 可用 POST /v1/action_rules 覆盖):\n"
                     + c.actionRules();
             new AlertDialog.Builder(this).setTitle("动作规则(只算不点)")

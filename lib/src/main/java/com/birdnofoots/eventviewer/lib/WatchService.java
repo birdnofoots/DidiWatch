@@ -316,7 +316,7 @@ public class WatchService extends AccessibilityService {
 
     /** 内置默认动作规则(线路A) */
     private static org.json.JSONArray defaultActionRules() {
-        try { return new org.json.JSONArray(WatchConfig.DEFAULT_ACTION_RULES); } catch (Exception e) { return null; }
+        return WatchConfig.defaultActionRules();
     }
 
     /**

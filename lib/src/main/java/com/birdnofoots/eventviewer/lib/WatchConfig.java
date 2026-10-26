@@ -4,6 +4,7 @@ import android.content.Context;
 import android.content.SharedPreferences;
 
 import org.json.JSONArray;
+import org.json.JSONObject;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -109,29 +110,49 @@ public class WatchConfig {
      * 内置默认动作规则(线路A) —— 滴滴车主专用。
      * ★只是算决策, **不执行任何点击**(影子模式)。
      * 线路B = 调用者 POST /v1/action_rules 配置的规则, 同一套引擎评估。
+     * 用 org.json API 程序化构造(不用 JSON 字符串), 绝对不会踩转义/解析的坑。
      */
-    public static final String DEFAULT_ACTION_RULES =
-        "[{" +
-        "\"name\":\"didi_no_grab\"," +
-        "\"when\":{\"all\":[{\"field\":\"price\",\"lt\":80}," +
-        "{\"node\":\"title_left_btn\",\"text\":\"不抢\"}]}," +
-        "\"target\":\"order_review_left_btn\",\"dec\":\"tap_no\",\"need_stable\":true}," +
-        "{" +
-        "\"name\":\"didi_grab\"," +
-        "\"when\":{\"all\":[{\"field\":\"price\",\"gt\":99}]}," +
-        "\"target\":\"order_review_right_btn\",\"dec\":\"tap_grab\"," +
-        "\"need_clickable\":true,\"need_stable\":true}" +
-        "}]";
+    public static JSONArray defaultActionRules() {
+        JSONArray arr = new JSONArray();
+        try {
+            JSONObject g0 = new JSONObject();          // 组0: 不抢(价<80 且有「不抢」按钮)
+            g0.put("name", "didi_no_grab");
+            JSONArray c0 = new JSONArray();
+            JSONObject c0a = new JSONObject(); c0a.put("field", "price"); c0a.put("lt", 80);
+            JSONObject c0b = new JSONObject(); c0b.put("node", "title_left_btn"); c0b.put("text", "不抢");
+            c0.put(c0a); c0.put(c0b);
+            JSONObject w0 = new JSONObject(); w0.put("all", c0);
+            g0.put("when", w0);
+            g0.put("target", "order_review_left_btn");
+            g0.put("dec", "tap_no");
+            g0.put("need_stable", true);
+            arr.put(g0);
+
+            JSONObject g1 = new JSONObject();          // 组1: 抢单(价>99, 且按钮可点)
+            g1.put("name", "didi_grab");
+            JSONArray c1 = new JSONArray();
+            JSONObject c1a = new JSONObject(); c1a.put("field", "price"); c1a.put("gt", 99);
+            c1.put(c1a);
+            JSONObject w1 = new JSONObject(); w1.put("all", c1);
+            g1.put("when", w1);
+            g1.put("target", "order_review_right_btn");
+            g1.put("dec", "tap_grab");
+            g1.put("need_clickable", true);
+            g1.put("need_stable", true);
+            arr.put(g1);
+        } catch (Exception ignored) {}
+        return arr;
+    }
 
     /** 线路B: 调用者可写的动作规则(没配置就用内置默认) */
     public JSONArray actionRules() {
         String j = sp.getString("action_rules", "");
         if (j == null || j.trim().isEmpty()) {
-            try { return new org.json.JSONArray(DEFAULT_ACTION_RULES); } catch (Exception e) { return null; }
+            return defaultActionRules();
         }
         try { return new org.json.JSONArray(j); }
         catch (Exception e) {
-            try { return new org.json.JSONArray(DEFAULT_ACTION_RULES); } catch (Exception e2) { return null; }
+            return defaultActionRules();
         }
     }
     public void setActionRules(String json) { sp.edit().putString("action_rules", json).apply(); }

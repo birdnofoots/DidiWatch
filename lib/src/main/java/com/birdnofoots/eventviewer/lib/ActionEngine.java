@@ -10,7 +10,7 @@ import java.util.List;
  * 影子动作引擎 —— **只算不点**。
  *
  * 两条线路并行评估, 都只产出决策(绝不执行任何点击):
- *   线路A: 内置默认动作规则(WatchConfig.DEFAULT_ACTION_RULES) —— 滴滴车主专用
+ *   线路A: 内置默认动作规则(WatchConfig.defaultActionRules()) —— 滴滴车主专用
  *   线路B: 调用者通过 POST /v1/action_rules 配置的规则
  * 两条线路走**同一个引擎**, 所以结果天然可比; 事件里带 act / act_b / act_cmp 三个字段。
  *
