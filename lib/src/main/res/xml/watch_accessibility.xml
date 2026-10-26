@@ -6,4 +6,6 @@
     android:canRetrieveWindowContent="true"
     android:notificationTimeout="100"
     android:description="@string/watch_service_desc"
-    android:summary="@string/watch_service_desc"/>
+    android:summary="@string/watch_service_desc"
+    android:canRequestScreenshot="true"
+/>
