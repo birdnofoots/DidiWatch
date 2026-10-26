@@ -9,7 +9,6 @@ import android.util.Log;
 import android.view.Display;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
-import android.accessibilityservice.ScreenshotResult;
 
 import java.io.ByteArrayOutputStream;
 
