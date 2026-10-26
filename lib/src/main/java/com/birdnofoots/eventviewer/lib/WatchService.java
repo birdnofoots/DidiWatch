@@ -224,8 +224,8 @@ public class WatchService extends AccessibilityService {
                         card.put("act_b", actB);
                         card.put("act_cmp", ac);
                         card.put("shadow", !cfg.tapEnabled());   // 点了就不是纯影子了
+                        maybeTap(card, actA);       // ★真实点击(默认关, tap_enabled=true 才点)
                     } catch (Exception ignored) {}
-                    maybeTap(card, actA);          // ★真实点击(默认关, tap_enabled=true 才点)
                     WatchBus.publish(WatchService.this, card);
                     takeShot(card);          // ★APK 自己截图存档, 不抢 GKD 的时间
                     Log.i(TAG, "卡片识别 价=" + card.optString("price")
