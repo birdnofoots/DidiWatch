@@ -71,6 +71,13 @@ public class WatchConfig {
     /** 影子模式: 算出动作决策但不真点(阶段2 默认开, 切主前才关) */
     public boolean shadowAction() { return sp.getBoolean("shadow_action", true); }
     public void setShadowAction(boolean b) { sp.edit().putBoolean("shadow_action", b).apply(); }
+    /**
+     * APK 真实点击开关 —— **默认 false**。
+     * 只有显式开启(POST /v1/config {"tap_enabled":true} 或 didi tap apk)才会真的点。
+     * 注意: 开了之后 shadow_action 自动视为 false(点击与影子互斥)。
+     */
+    public boolean tapEnabled() { return sp.getBoolean("tap_enabled", false); }
+    public void setTapEnabled(boolean b) { sp.edit().putBoolean("tap_enabled", b).apply(); }
     /** 卡片出现后跟踪按钮状态(倒计时 -> 可点), 状态一变就上报 */
     public boolean actionTrack() { return sp.getBoolean("action_track", true); }
     public void setActionTrack(boolean b) { sp.edit().putBoolean("action_track", b).apply(); }

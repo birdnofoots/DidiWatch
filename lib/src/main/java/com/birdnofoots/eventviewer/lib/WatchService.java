@@ -223,8 +223,9 @@ public class WatchService extends AccessibilityService {
                         card.put("act", actA);
                         card.put("act_b", actB);
                         card.put("act_cmp", ac);
-                        card.put("shadow", true);   // ★恒为真: 本版本不执行任何点击
+                        card.put("shadow", !cfg.tapEnabled());   // 点了就不是纯影子了
                     } catch (Exception ignored) {}
+                    maybeTap(card, actA);          // ★真实点击(默认关, tap_enabled=true 才点)
                     WatchBus.publish(WatchService.this, card);
                     takeShot(card);          // ★APK 自己截图存档, 不抢 GKD 的时间
                     Log.i(TAG, "卡片识别 价=" + card.optString("price")
@@ -480,6 +481,62 @@ public class WatchService extends AccessibilityService {
             p.put("shadow", true);
         } catch (Exception ignored) {}
         WatchBus.publish(this, p);
+    }
+
+    /**
+     * 点击某个 vid 的节点(自己可点就点自己, 否则往上找 4 级可点祖先)。
+     * 为什么用 findAccessibilityNodeInfosByViewId 而不是坐标:
+     *   滴滴卡片可能被别的窗口压住, 坐标点击会打到别的 app; 节点点击不受遮挡影响。
+     * 注意 title_left_btn/title_right_btn 自己 clickable=false, 必须落到容器上。
+     */
+    private boolean tapVid(String vid) {
+        if (vid == null || vid.isEmpty()) return false;
+        AccessibilityNodeInfo root = getRootInActiveWindow();
+        if (root == null) return false;
+        List<AccessibilityNodeInfo> ns = root.findAccessibilityNodeInfosByViewId(getPackageName() + ":id/" + vid);
+        if (ns == null || ns.isEmpty()) ns = root.findAccessibilityNodeInfosByViewId(vid);
+        if (ns == null) return false;
+        for (AccessibilityNodeInfo n : ns) {
+            try {
+                if (n.isClickable()) {
+                    return n.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+                }
+                AccessibilityNodeInfo p = n.getParent();
+                for (int i = 0; i < 4 && p != null; i++) {
+                    if (p.isClickable()) return p.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+                    p = p.getParent();
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "tapVid 异常 " + vid + ": " + e);
+            }
+        }
+        return false;
+    }
+
+    /** 决策出来后, 若开了真实点击就执行(只处理 tap_no / tap_grab) */
+    private void maybeTap(JSONObject card, JSONObject act) {
+        try {
+            String dec = act.optString("dec");
+            if (!"tap_no".equals(dec) && !"tap_grab".equals(dec)) return;
+            WatchConfig cfg = WatchConfig.get(this);
+            if (!cfg.tapEnabled()) return;                      // ★默认关, 显式开启才点
+            String vid = act.optString("target_vid");
+            boolean ok = tapVid(vid);
+            JSONObject tp = new JSONObject();
+            tp.put("kind", "card_tapped");
+            tp.put("ts", System.currentTimeMillis());
+            tp.put("origin", getPackageName());
+            tp.put("pkg", card.optString("pkg", ""));
+            tp.put("price", card.optString("price", ""));
+            tp.put("dec", dec);
+            tp.put("target_vid", vid);
+            tp.put("ok", ok);
+            tp.put("rule", act.optString("rule"));
+            WatchBus.publish(this, tp);
+            Log.i(TAG, "APK 点击 " + dec + " -> " + vid + " 结果=" + ok);
+        } catch (Exception e) {
+            Log.w(TAG, "maybeTap 异常: " + e);
+        }
     }
 
     /** 内置默认动作规则(线路A) */

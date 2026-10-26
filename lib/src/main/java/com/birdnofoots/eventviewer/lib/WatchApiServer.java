@@ -149,6 +149,7 @@ public class WatchApiServer {
                 r.put("card_retries", cfg.cardRetries());
                 r.put("shadow_action", cfg.shadowAction());
                 r.put("action_track", cfg.actionTrack());
+                r.put("tap_enabled", cfg.tapEnabled());
                 r.put("callbacks", new JSONArray(cfg.callbacks()));
                 r.put("api_port", cfg.apiPort());
                 send(o, 200, r.toString());
@@ -164,6 +165,7 @@ public class WatchApiServer {
                 if (b.has("card_retries")) cfg.setCardRetries(b.getInt("card_retries"));
                 if (b.has("shadow_action")) cfg.setShadowAction(b.getBoolean("shadow_action"));
                 if (b.has("action_track")) cfg.setActionTrack(b.getBoolean("action_track"));
+                if (b.has("tap_enabled")) cfg.setTapEnabled(b.getBoolean("tap_enabled"));
                 send(o, 200, "{\"ok\":true}");
                 return;
             }
