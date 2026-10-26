@@ -1,11 +1,17 @@
 package com.birdnofoots.eventviewer.lib;
 
 import android.accessibilityservice.AccessibilityService;
+import android.graphics.Bitmap;
 import android.graphics.Rect;
+import android.hardware.HardwareBuffer;
 import android.os.SystemClock;
 import android.util.Log;
+import android.view.Display;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
+import android.accessibilityservice.ScreenshotResult;
+
+import java.io.ByteArrayOutputStream;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -219,6 +225,7 @@ public class WatchService extends AccessibilityService {
                         card.put("shadow", true);   // ★恒为真: 本版本不执行任何点击
                     } catch (Exception ignored) {}
                     WatchBus.publish(WatchService.this, card);
+                    takeShot(card);          // ★APK 自己截图存档, 不抢 GKD 的时间
                     Log.i(TAG, "卡片识别 价=" + card.optString("price")
                             + " 第" + (i + 1) + "次(" + ((i + 1) * cfg.cardDelayMs()) + "ms) 取到"
                             + " 距事件" + (SystemClock.elapsedRealtime() - lastContentAt) + "ms"
@@ -228,6 +235,46 @@ public class WatchService extends AccessibilityService {
                 }
             }
         }).start();
+    }
+
+    /**
+     * APK 自己截图 —— **不依赖 GKD 快照**。
+     * 用无障碍服务的 takeScreenshot(API30+) 直接截当前屏幕, 压成 JPEG 后 POST 给脚本侧
+     * 存到 captures/ 目录(与脚本的存档图同目录, 报告站可直接引用)。
+     * 为什么要做这个: 脚本的存档图走 GKD captureSnapshot, 会和 GKD 的点击抢时间
+     *   (实测扑空率 5%→25%, actionDelay 调回 150ms 后 8%); APK 自己截图就没有这个竞争。
+     * 另外数据本身(价格/距您/抬头等)APK 是直接读无障碍节点的 node.getText() 原文字, 从来不是 OCR。
+     */
+    private void takeShot(final JSONObject card) {
+        try {
+            takeScreenshot(Display.DEFAULT_DISPLAY, getMainExecutor(), new TakeScreenshotCallback() {
+                @Override public void onSuccess(ScreenshotResult result) {
+                    Bitmap bm = null;
+                    try {
+                        HardwareBuffer buf = result.getHardwareBuffer();
+                        bm = Bitmap.wrapHardwareBuffer(buf, null);
+                        buf.close();
+                        if (bm == null) return;
+                        Bitmap flat = bm.copy(Bitmap.Config.ARGB_8888, false);
+                        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                        flat.compress(Bitmap.CompressFormat.JPEG, 72, baos);
+                        flat.recycle(); bm.recycle();
+                        String url = "http://127.0.0.1:8765/apk_shot"
+                                + "?price=" + java.net.URLEncoder.encode(card.optString("price", ""), "UTF-8")
+                                + "&ts=" + card.optLong("ts", 0);
+                        WatchBus.postBinaryAsync(url, baos.toByteArray(), "image/jpeg");
+                    } catch (Exception e) {
+                        Log.w(TAG, "截图处理失败: " + e);
+                    }
+                }
+
+                @Override public void onFailure(int reason) {
+                    Log.w(TAG, "截图失败 reason=" + reason);
+                }
+            });
+        } catch (Exception e) {
+            Log.w(TAG, "takeScreenshot 不可用: " + e);
+        }
     }
 
     /**

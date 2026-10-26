@@ -70,6 +70,34 @@ public class WatchBus {
         t.start();
     }
 
+    /**
+     * POST 二进制(给截图用): body 就是原始字节, 元数据走 URL query。
+     * 例: POST http://127.0.0.1:8765/apk_shot?price=47.77&ts=1792931663032
+     *     Content-Type: image/jpeg  <JPEG 字节>
+     */
+    public static void postBinaryAsync(final String url, final byte[] data, final String contentType) {
+        Thread t = new Thread(() -> {
+            HttpURLConnection c = null;
+            try {
+                c = (HttpURLConnection) new URL(url).openConnection();
+                c.setRequestMethod("POST");
+                c.setConnectTimeout(3000);
+                c.setReadTimeout(3000);
+                c.setDoOutput(true);
+                c.setRequestProperty("Content-Type", contentType);
+                c.setFixedLengthStreamingMode(data.length);
+                try (OutputStream os = c.getOutputStream()) { os.write(data); }
+                Log.i(TAG, "二进制 POST " + url + " -> " + c.getResponseCode());
+            } catch (Exception e) {
+                Log.w(TAG, "二进制 POST 失败 " + url + ": " + e);
+            } finally {
+                if (c != null) c.disconnect();
+            }
+        });
+        t.setDaemon(true);
+        t.start();
+    }
+
     public static void post(String url, JSONObject ev) {
         HttpURLConnection c = null;
         try {
