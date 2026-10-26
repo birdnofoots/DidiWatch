@@ -128,11 +128,12 @@ public class WatchConfig {
             g0.put("need_stable", true);
             arr.put(g0);
 
-            JSONObject g1 = new JSONObject();          // 组1: 抢单(价>99, 且按钮可点)
+            JSONObject g1 = new JSONObject();          // 组1: 抢单(价>99 且 距<20km, 且按钮可点)
             g1.put("name", "didi_grab");
             JSONArray c1 = new JSONArray();
             JSONObject c1a = new JSONObject(); c1a.put("field", "price"); c1a.put("gt", 99);
-            c1.put(c1a);
+            JSONObject c1b = new JSONObject(); c1b.put("field", "dist_me"); c1b.put("lt", 20);
+            c1.put(c1a); c1.put(c1b);   // ★距离门槛: 距您 < 20km(dist_me 已折算成 km)
             JSONObject w1 = new JSONObject(); w1.put("all", c1);
             g1.put("when", w1);
             g1.put("target", "order_review_right_btn");
