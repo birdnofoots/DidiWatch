@@ -239,50 +239,134 @@ public class WatchService extends AccessibilityService {
     }
 
     /**
-     * APK 自己截图 —— **不依赖 GKD 快照**。
-     * 用无障碍服务的 takeScreenshot(API30+) 直接截当前屏幕, 压成 JPEG 后 POST 给脚本侧
-     * 存到 captures/ 目录(与脚本的存档图同目录, 报告站可直接引用)。
-     * 为什么要做这个: 脚本的存档图走 GKD captureSnapshot, 会和 GKD 的点击抢时间
-     *   (实测扑空率 5%→25%, actionDelay 调回 150ms 后 8%); APK 自己截图就没有这个竞争。
-     * 另外数据本身(价格/距您/抬头等)APK 是直接读无障碍节点的 node.getText() 原文字, 从来不是 OCR。
+     * APK 侧截图(不依赖脚本的 adb, 也不和 GKD 的点击抢时间)。
+     *
+     * 两条路:
+     *   路线1 `takeScreenshot()`(无障碍服务自带) —— **在华为 Android 12 上回调不回来**
+     *     (services 里没有 CAPABILITY_CAN_TAKE_SCREENSHOT, 那是 API34 的标志), 保留给升级后用
+     *   路线2 走 GKD 的 HTTP API(实测可用, getScreenshot 仅 38ms):
+     *     captureSnapshot{} → {id} → getScreenshot{id}=PNG → 转发给脚本侧存档 → deleteSnapshot
+     *     APK 在卡出现 +150ms 就拿到卡, GKD 点击在 +1360ms 之后 → **还有 1.2 秒余量, 来得及**
      */
     private void takeShot(final JSONObject card) {
+        tryNativeShot(card);   // 路线1(异步, 失败就用路线2)
+        gkdShot(card);         // 路线2(当前主力)
+    }
+
+    private void tryNativeShot(final JSONObject card) {
         try {
             takeScreenshot(Display.DEFAULT_DISPLAY, getMainExecutor(), new TakeScreenshotCallback() {
                 @Override public void onSuccess(ScreenshotResult result) {
-                    Bitmap bm = null;
                     try {
                         HardwareBuffer buf = result.getHardwareBuffer();
-                        bm = Bitmap.wrapHardwareBuffer(buf, null);
+                        Bitmap bm = Bitmap.wrapHardwareBuffer(buf, null);
                         buf.close();
                         if (bm == null) return;
                         Bitmap flat = bm.copy(Bitmap.Config.ARGB_8888, false);
                         ByteArrayOutputStream baos = new ByteArrayOutputStream();
                         flat.compress(Bitmap.CompressFormat.JPEG, 72, baos);
                         flat.recycle(); bm.recycle();
-                        String url = "http://127.0.0.1:8765/apk_shot"
-                                + "?price=" + java.net.URLEncoder.encode(card.optString("price", ""), "UTF-8")
-                                + "&ts=" + card.optLong("ts", 0);
-                        WatchBus.postBinaryAsync(url, baos.toByteArray(), "image/jpeg");
-                        // 截图本身也回一条事件, 方便确认 APK 侧截图能力是否可用
-                        JSONObject sh = new JSONObject();
-                        sh.put("kind", "apk_shot_ok");
-                        sh.put("ts", System.currentTimeMillis());
-                        sh.put("price", card.optString("price", ""));
-                        sh.put("bytes", baos.size());
-                        sh.put("origin", getPackageName());
-                        WatchBus.publish(WatchService.this, sh);
-                    } catch (Exception e) {
-                        Log.w(TAG, "截图处理失败: " + e);
-                    }
+                        forwardShot(baos.toByteArray(), "image/jpeg", card);
+                        Log.i(TAG, "takeScreenshot 成功 " + baos.size() + "B");
+                    } catch (Exception e) { Log.w(TAG, "截图处理失败: " + e); }
                 }
 
                 @Override public void onFailure(int reason) {
-                    Log.w(TAG, "截图失败 reason=" + reason);
+                    Log.w(TAG, "takeScreenshot 失败 reason=" + reason + " (华为Android12已知, 走GKD兜底)");
                 }
             });
         } catch (Exception e) {
             Log.w(TAG, "takeScreenshot 不可用: " + e);
+        }
+    }
+
+    /** 走 GKD 的截图 API */
+    private void gkdShot(final JSONObject card) {
+        new Thread(new Runnable() {
+            @Override public void run() {
+                String json = gkdPost("http://127.0.0.1:8888/api/captureSnapshot", "{}", 4000);
+                String sid = null;
+                try { if (json != null) sid = String.valueOf(new JSONObject(json).optLong("id", 0)); }
+                catch (Exception ignored) {}
+                if (sid == null || "0".equals(sid)) { Log.w(TAG, "GKD captureSnapshot 拿不到 id"); return; }
+                byte[] png = gkdPostRaw("http://127.0.0.1:8888/api/getScreenshot",
+                        "{\"id\":" + sid + "}", 4000);
+                if (png != null && png.length > 8 && png[0] == (byte) 0x89 && png[1] == 'P'
+                        && png[2] == 'N' && png[3] == 'G') {
+                    forwardShot(png, "image/png", card);
+                    Log.i(TAG, "GKD 截图转发成功 " + png.length + "B");
+                } else {
+                    Log.w(TAG, "GKD getScreenshot 失败");
+                }
+                gkdPost("http://127.0.0.1:8888/api/deleteSnapshot", "{\"id\":" + sid + "}", 3000);
+            }
+        }).start();
+    }
+
+    /** 把图转发给脚本侧 webserve 存档 */
+    private void forwardShot(byte[] data, String contentType, JSONObject card) {
+        try {
+            String url = "http://127.0.0.1:8765/apk_shot"
+                    + "?price=" + java.net.URLEncoder.encode(card.optString("price", ""), "UTF-8")
+                    + "&ts=" + card.optLong("ts", 0);
+            WatchBus.postBinaryAsync(url, data, contentType);
+            JSONObject sh = new JSONObject();
+            sh.put("kind", "apk_shot_ok");
+            sh.put("ts", System.currentTimeMillis());
+            sh.put("price", card.optString("price", ""));
+            sh.put("bytes", data.length);
+            sh.put("origin", getPackageName());
+            WatchBus.publish(this, sh);
+        } catch (Exception e) {
+            Log.w(TAG, "转发截图失败: " + e);
+        }
+    }
+
+    private static String gkdPost(String url, String body, int timeoutMs) {
+        java.net.HttpURLConnection c = null;
+        try {
+            c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+            c.setRequestMethod("POST");
+            c.setConnectTimeout(timeoutMs); c.setReadTimeout(timeoutMs);
+            c.setDoOutput(true);
+            c.setRequestProperty("Content-Type", "application/json");
+            byte[] b = body.getBytes("UTF-8");
+            c.setFixedLengthStreamingMode(b.length);
+            try (java.io.OutputStream os = c.getOutputStream()) { os.write(b); }
+            java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+            try (java.io.InputStream is = c.getInputStream()) {
+                byte[] tmp = new byte[4096]; int n;
+                while ((n = is.read(tmp)) > 0) bo.write(tmp, 0, n);
+            }
+            return bo.toString("UTF-8");
+        } catch (Exception e) {
+            return null;
+        } finally {
+            if (c != null) c.disconnect();
+        }
+    }
+
+    private static byte[] gkdPostRaw(String url, String body, int timeoutMs) {
+        java.net.HttpURLConnection c = null;
+        try {
+            c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+            c.setRequestMethod("POST");
+            c.setConnectTimeout(timeoutMs); c.setReadTimeout(timeoutMs);
+            c.setDoOutput(true);
+            c.setRequestProperty("Content-Type", "application/json");
+            byte[] b = body.getBytes("UTF-8");
+            c.setFixedLengthStreamingMode(b.length);
+            try (java.io.OutputStream os = c.getOutputStream()) { os.write(b); }
+            java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+            try (java.io.InputStream is = c.getInputStream()) {
+                byte[] tmp = new byte[8192]; int n;
+                while ((n = is.read(tmp)) > 0) bo.write(tmp, 0, n);
+            }
+            return bo.toByteArray();
+        } catch (Exception e) {
+            return null;
+        } finally {
+            if (c != null) c.disconnect();
         }
     }
 
