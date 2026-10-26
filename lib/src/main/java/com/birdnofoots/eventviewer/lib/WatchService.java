@@ -104,7 +104,10 @@ public class WatchService extends AccessibilityService {
         }
 
         // 卡片识别: 事件到后延迟取树(卡片晚于事件渲染), 有冷却防洪
-        if (cfg.cardDetect() && type == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
+        // ★窗口状态变化也要触发 —— 卡片是 MainActivity 上的覆盖层, 有些卡只发窗口事件
+        //   不发内容变化事件(实测 09:04 那张只报了 window_state_changed, APK 漏检了)
+        if (cfg.cardDetect() && (type == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
+                || type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED)) {
             maybeCheckCard(cfg, pkg, cls);
         }
 
