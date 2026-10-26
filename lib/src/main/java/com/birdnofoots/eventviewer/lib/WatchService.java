@@ -270,13 +270,15 @@ public class WatchService extends AccessibilityService {
                 @Override public void onSuccess(ScreenshotResult result) {
                     try {
                         HardwareBuffer buf = result.getHardwareBuffer();
-                        Bitmap bm = Bitmap.wrapHardwareBuffer(buf, null);
+                        Bitmap bm = Bitmap.wrapHardwareBuffer(buf, result.getColorSpace());
+                        // ★先软拷贝再关 buffer(顺序反了 buffer 已释放, copy 会失败/出黑图)
+                        Bitmap flat = (bm == null) ? null : bm.copy(Bitmap.Config.ARGB_8888, false);
+                        if (bm != null) bm.recycle();
                         buf.close();
-                        if (bm == null) return;
-                        Bitmap flat = bm.copy(Bitmap.Config.ARGB_8888, false);
+                        if (flat == null) return;
                         ByteArrayOutputStream baos = new ByteArrayOutputStream();
                         flat.compress(Bitmap.CompressFormat.JPEG, 72, baos);
-                        flat.recycle(); bm.recycle();
+                        flat.recycle();
                         forwardShot(baos.toByteArray(), "image/jpeg", card);
                         done.set(true);
                         Log.i(TAG, "takeScreenshot 成功(零依赖) " + baos.size() + "B");
