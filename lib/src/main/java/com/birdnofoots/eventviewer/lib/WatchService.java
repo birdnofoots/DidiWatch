@@ -489,11 +489,14 @@ public class WatchService extends AccessibilityService {
      *   滴滴卡片可能被别的窗口压住, 坐标点击会打到别的 app; 节点点击不受遮挡影响。
      * 注意 title_left_btn/title_right_btn 自己 clickable=false, 必须落到容器上。
      */
-    private boolean tapVid(String vid) {
+    private boolean tapVid(String vid, String pkg) {
         if (vid == null || vid.isEmpty()) return false;
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root == null) return false;
-        List<AccessibilityNodeInfo> ns = root.findAccessibilityNodeInfosByViewId(getPackageName() + ":id/" + vid);
+        // ★节点属于**被监听的 App**(pkg 参数, 如 com.sdu.didi.gsui), 不是我们自己的包名
+        //   (第一次实测就踩了: 用自己的包名查 → 找不到 → ok=false, GKD 先点掉了)
+        String full = (pkg == null || pkg.isEmpty()) ? vid : (pkg + ":id/" + vid);
+        List<AccessibilityNodeInfo> ns = root.findAccessibilityNodeInfosByViewId(full);
         if (ns == null || ns.isEmpty()) ns = root.findAccessibilityNodeInfosByViewId(vid);
         if (ns == null) return false;
         for (AccessibilityNodeInfo n : ns) {
@@ -521,7 +524,7 @@ public class WatchService extends AccessibilityService {
             WatchConfig cfg = WatchConfig.get(this);
             if (!cfg.tapEnabled()) return;                      // ★默认关, 显式开启才点
             String vid = act.optString("target_vid");
-            boolean ok = tapVid(vid);
+            boolean ok = tapVid(vid, card.optString("pkg", ""));
             JSONObject tp = new JSONObject();
             tp.put("kind", "card_tapped");
             tp.put("ts", System.currentTimeMillis());
@@ -530,6 +533,7 @@ public class WatchService extends AccessibilityService {
             tp.put("price", card.optString("price", ""));
             tp.put("dec", dec);
             tp.put("target_vid", vid);
+            tp.put("pkg", card.optString("pkg", ""));
             tp.put("ok", ok);
             tp.put("rule", act.optString("rule"));
             WatchBus.publish(this, tp);
