@@ -249,11 +249,22 @@ public class WatchService extends AccessibilityService {
      *     APK 在卡出现 +150ms 就拿到卡, GKD 点击在 +1360ms 之后 → **还有 1.2 秒余量, 来得及**
      */
     private void takeShot(final JSONObject card) {
-        tryNativeShot(card);   // 路线1(异步, 失败就用路线2)
-        gkdShot(card);         // 路线2(当前主力)
+        // **native 优先**: v0.8.7d 加了 android:canTakeScreenshot="true" 后 takeScreenshot 成功
+        // (logcat: "takeScreenshot 成功 100928B"), 300ms 内没回调才算失败 -> 才走 GKD 兜底
+        final java.util.concurrent.atomic.AtomicBoolean done = new java.util.concurrent.atomic.AtomicBoolean(false);
+        tryNativeShot(card, done);
+        new Thread(new Runnable() {
+            @Override public void run() {
+                try { Thread.sleep(300); } catch (Exception e) { return; }
+                if (!done.get()) {
+                    Log.i(TAG, "native 截图没回 -> 走 GKD 兜底");
+                    gkdShot(card);
+                }
+            }
+        }).start();
     }
 
-    private void tryNativeShot(final JSONObject card) {
+    private void tryNativeShot(final JSONObject card, final java.util.concurrent.atomic.AtomicBoolean done) {
         try {
             takeScreenshot(Display.DEFAULT_DISPLAY, getMainExecutor(), new TakeScreenshotCallback() {
                 @Override public void onSuccess(ScreenshotResult result) {
@@ -267,7 +278,8 @@ public class WatchService extends AccessibilityService {
                         flat.compress(Bitmap.CompressFormat.JPEG, 72, baos);
                         flat.recycle(); bm.recycle();
                         forwardShot(baos.toByteArray(), "image/jpeg", card);
-                        Log.i(TAG, "takeScreenshot 成功 " + baos.size() + "B");
+                        done.set(true);
+                        Log.i(TAG, "takeScreenshot 成功(零依赖) " + baos.size() + "B");
                     } catch (Exception e) { Log.w(TAG, "截图处理失败: " + e); }
                 }
 
