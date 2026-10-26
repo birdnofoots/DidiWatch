@@ -46,12 +46,14 @@ public class WatchService extends AccessibilityService {
     private volatile long lastCardCheck = 0L;      // 卡片检查冷却(防事件洪水)
     private volatile long lastCardReport = 0L;     // 同一张卡去重
     private volatile String lastCardKey = "";
+    private static volatile WatchService SVC;      // 供 API 主动触发截图用
     private final AtomicBoolean tracking = new AtomicBoolean(false);   // 卡片按钮跟踪中(同一时间只跟一张)
     private final Object trackLock = new Object();                     // 事件唤醒跟踪线程用
     private volatile long lastTrackCheck = 0L;                        // 上次复查时刻(限流)
 
     @Override
     protected void onServiceConnected() {
+        SVC = this;
         super.onServiceConnected();
         alive = true;
         Log.i(TAG, "无障碍服务已连接");
@@ -262,6 +264,14 @@ public class WatchService extends AccessibilityService {
                                 + "?price=" + java.net.URLEncoder.encode(card.optString("price", ""), "UTF-8")
                                 + "&ts=" + card.optLong("ts", 0);
                         WatchBus.postBinaryAsync(url, baos.toByteArray(), "image/jpeg");
+                        // 截图本身也回一条事件, 方便确认 APK 侧截图能力是否可用
+                        JSONObject sh = new JSONObject();
+                        sh.put("kind", "apk_shot_ok");
+                        sh.put("ts", System.currentTimeMillis());
+                        sh.put("price", card.optString("price", ""));
+                        sh.put("bytes", baos.size());
+                        sh.put("origin", getPackageName());
+                        WatchBus.publish(WatchService.this, sh);
                     } catch (Exception e) {
                         Log.w(TAG, "截图处理失败: " + e);
                     }
@@ -274,6 +284,17 @@ public class WatchService extends AccessibilityService {
         } catch (Exception e) {
             Log.w(TAG, "takeScreenshot 不可用: " + e);
         }
+    }
+
+    /**
+     * 主动触发一次截图(给 API /v1/shot 用)。meta 里的 price/ts 会随 apk_shot 事件回传,
+     * 方便调试时验证 takeScreenshot 在本机是否可用。
+     */
+    public static boolean requestShot(JSONObject meta) {
+        WatchService s = SVC;
+        if (s == null) return false;
+        s.takeShot(meta == null ? new JSONObject() : meta);
+        return true;
     }
 
     /**

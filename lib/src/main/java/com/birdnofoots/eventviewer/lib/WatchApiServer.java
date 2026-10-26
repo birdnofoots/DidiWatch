@@ -167,6 +167,14 @@ public class WatchApiServer {
                 send(o, 200, "{\"ok\":true}");
                 return;
             }
+            case "POST /v1/shot": {
+                JSONObject m = null;
+                try { m = body.isEmpty() ? new JSONObject() : new JSONObject(body); } catch (Exception ignored) {}
+                boolean ok = WatchService.requestShot(m);
+                send(o, ok ? 200 : 409, ok ? "{\"ok\":true,\"note\":\"截图进行中, 结果见 apk_shot_ok 事件与 captures/apk_*.jpg\"}"
+                        : "{\"error\":\"无障碍服务未连接\"}");
+                return;
+            }
             case "GET /v1/action_rules": {
                 org.json.JSONArray ar = WatchConfig.get(c).actionRules();
                 send(o, 200, ar == null ? "[]" : ar.toString());
