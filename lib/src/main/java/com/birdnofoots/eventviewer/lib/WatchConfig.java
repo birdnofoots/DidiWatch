@@ -19,7 +19,7 @@ public class WatchConfig {
     public static final String DEFAULT_PKG = "";
     public static final String DEFAULT_ACT = "";
     /** 本机 API 首选端口(只监听 127.0.0.1); 被占用时会自动换并存起来 */
-    public static final int API_PORT = 8766;
+    public static final int API_PORT = 18766;
 
     private final SharedPreferences sp;
 

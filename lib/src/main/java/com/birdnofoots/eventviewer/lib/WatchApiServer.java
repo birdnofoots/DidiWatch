@@ -33,7 +33,7 @@ public class WatchApiServer {
     private static final String TAG = "DidiWatch";
     private static volatile ServerSocket ss;
     private static volatile boolean starting = false;
-    private static final int[] FALLBACK_PORTS = {8766, 18766, 28766, 38766, 48766};
+    private static final int[] FALLBACK_PORTS = {18766, 28766, 38766, 48766};
 
     public static synchronized void start(final Context c) {
         if (ss != null || starting) return;   // 修: 原来 ss 在绑定成功前是 null, 并发会重复绑定
